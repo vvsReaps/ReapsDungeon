@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Reaps Dungeon v3.0</title>
+  <title>Reaps Dungeon v4.0</title>
   <style>
     :root { color-scheme: dark; }
     html, body { margin:0; height:100%; background:#070912; overflow:hidden; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
@@ -297,6 +297,7 @@
     door(pan=0){ this.noise({dur:0.06,vol:0.08,hp:1100,pan}); this.beep({freq:420,dur:0.06,type:"triangle",vol:0.07,slide:0.95,pan}); }
     deny(pan=0){ this.beep({freq:220,dur:0.10,type:"square",vol:0.12,slide:0.85,pan}); }
     hurt(pan=0){ this.beep({freq:110,dur:0.12,type:"sine",vol:0.18,slide:0.8,pan}); this.noise({dur:0.08,vol:0.10,hp:600,pan}); }
+    bounce(pan=0){ this.beep({freq:820,dur:0.03,type:"triangle",vol:0.06,slide:0.92,pan}); }
   }
   const sfx = new SFX();
   const panFromX = x => clamp(((x/W)*2-1)*0.6, -0.6, 0.6);
@@ -370,6 +371,204 @@
     return false;
   }
 
+  // ============ Obstacles (stage 3+) ============
+  // Obstacles collide with player/enemies and reflect ALL bullets.
+  function doorKeepouts(){
+    const cx=W/2, cy=H/2;
+    const depth = 62; // keep some space inside the room so doors don't get blocked
+    return [
+      {x:cx-DOOR_W/2-22, y:ROOM_Y+WALL-8, w:DOOR_W+44, h:depth}, // N
+      {x:cx-DOOR_W/2-22, y:ROOM_Y+ROOM_H-WALL-depth+8, w:DOOR_W+44, h:depth}, // S
+      {x:ROOM_X+WALL-8, y:cy-DOOR_W/2-22, w:depth, h:DOOR_W+44}, // W
+      {x:ROOM_X+ROOM_W-WALL-depth+8, y:cy-DOOR_W/2-22, w:depth, h:DOOR_W+44}, // E
+      {x:W/2-85, y:H/2-85, w:170, h:170}, // center keepout so spawn isn't instantly wedged
+    ];
+  }
+  function rectsOverlap(a,b){
+    return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+  }
+  function pointInRect(px,py,r){
+    return px>=r.x && px<=r.x+r.w && py>=r.y && py<=r.y+r.h;
+  }
+  function circleRectOverlap(cx,cy,cr, rx,ry,rw,rh){
+    const qx = clamp(cx, rx, rx+rw);
+    const qy = clamp(cy, ry, ry+rh);
+    const dx=cx-qx, dy=cy-qy;
+    return (dx*dx+dy*dy) <= cr*cr;
+  }
+
+  function generateObstacles(room, rng, stage){
+    room.obstacles = [];
+
+    // count scales slowly with stage
+    const t = Math.max(0, stage-3);
+    const count = clamp(1 + (rng()*2|0) + (t*0.45|0), 1, 6);
+
+    const b=roomBounds();
+    const keep = doorKeepouts();
+    const tries = 120;
+
+    function okCircle(x,y,r){
+      // inside room with padding
+      if (x-r < b.left+6 || x+r > b.right-6 || y-r < b.top+6 || y+r > b.bot-6) return false;
+      // not in keepouts
+      for (const k of keep){
+        if (circleRectOverlap(x,y,r+10, k.x,k.y,k.w,k.h)) return false;
+      }
+      // not overlapping existing obstacles too tightly
+      for (const o of room.obstacles){
+        if (o.kind==="circle"){
+          const rr = r + o.r + 12;
+          if (dist2(x,y,o.x,o.y) < rr*rr) return false;
+        } else {
+          if (circleRectOverlap(x,y,r+10, o.x,o.y,o.w,o.h)) return false;
+        }
+      }
+      return true;
+    }
+
+    function okRect(x,y,w,h){
+      const pad=6;
+      if (x < b.left+pad || y < b.top+pad || x+w > b.right-pad || y+h > b.bot-pad) return false;
+      const rr={x,y,w,h};
+      for (const k of keep){
+        if (rectsOverlap(rr, k)) return false;
+      }
+      // overlap check vs existing
+      for (const o of room.obstacles){
+        if (o.kind==="circle"){
+          if (circleRectOverlap(o.x,o.y,o.r+10,x,y,w,h)) return false;
+        } else {
+          if (rectsOverlap(rr, {x:o.x,y:o.y,w:o.w,h:o.h})) return false;
+        }
+      }
+      return true;
+    }
+
+    for (let i=0;i<count;i++){
+      let placed=false;
+      for (let ttry=0;ttry<tries && !placed;ttry++){
+        const isCircle = rng() < 0.58;
+        if (isCircle){
+          const r = 12 + rng()*14 + Math.min(6, t*0.6); // small-ish
+          const x = b.left + 40 + rng()*((b.right-b.left)-80);
+          const y = b.top  + 40 + rng()*((b.bot-b.top)-80);
+          if (!okCircle(x,y,r)) continue;
+          room.obstacles.push({kind:"circle", x, y, r});
+          placed=true;
+        } else {
+          const w = 26 + rng()*36 + Math.min(12, t*1.0);
+          const h = 18 + rng()*28 + Math.min(10, t*0.9);
+          const x = b.left + 30 + rng()*((b.right-b.left)-60-w);
+          const y = b.top  + 30 + rng()*((b.bot-b.top)-60-h);
+          if (!okRect(x,y,w,h)) continue;
+          room.obstacles.push({kind:"rect", x, y, w, h, rr: 10});
+          placed=true;
+        }
+      }
+    }
+  }
+
+  // Collision resolve: circle (entity) vs obstacle circle/rect
+  function resolveEntityObstacles(ent){
+    if (!room.obstacles || room.obstacles.length===0) return;
+    for (const o of room.obstacles){
+      if (o.kind==="circle"){
+        const dx=ent.x-o.x, dy=ent.y-o.y;
+        const d=Math.hypot(dx,dy) || 0.0001;
+        const min=ent.r + o.r;
+        if (d < min){
+          const nX=dx/d, nY=dy/d;
+          const push=(min - d) + 0.6;
+          ent.x += nX*push;
+          ent.y += nY*push;
+        }
+      } else {
+        const qx = clamp(ent.x, o.x, o.x+o.w);
+        const qy = clamp(ent.y, o.y, o.y+o.h);
+        let dx = ent.x - qx;
+        let dy = ent.y - qy;
+        const dd = dx*dx+dy*dy;
+        if (dd < ent.r*ent.r){
+          // if dead-center inside rectangle edge case:
+          if (dd < 0.000001){
+            // choose axis to push out based on distances to sides
+            const left = Math.abs(ent.x - o.x);
+            const right = Math.abs((o.x+o.w) - ent.x);
+            const top = Math.abs(ent.y - o.y);
+            const bot = Math.abs((o.y+o.h) - ent.y);
+            const m = Math.min(left,right,top,bot);
+            if (m===left) { dx = -1; dy = 0; ent.x = o.x - ent.r - 0.6; }
+            else if (m===right){ dx= 1; dy=0; ent.x = o.x+o.w + ent.r + 0.6; }
+            else if (m===top){ dx=0; dy=-1; ent.y = o.y - ent.r - 0.6; }
+            else { dx=0; dy= 1; ent.y = o.y+o.h + ent.r + 0.6; }
+          } else {
+            const d=Math.sqrt(dd);
+            const nX=dx/d, nY=dy/d;
+            const push=(ent.r - d) + 0.6;
+            ent.x += nX*push;
+            ent.y += nY*push;
+          }
+        }
+      }
+    }
+  }
+
+  // Bullet bounce off obstacles (reflect v)
+  function reflect(vx,vy,nx,ny){
+    const dot = vx*nx + vy*ny;
+    return { vx: vx - 2*dot*nx, vy: vy - 2*dot*ny };
+  }
+  function bounceBullet(b){
+    if (!room.obstacles || room.obstacles.length===0) return false;
+    for (const o of room.obstacles){
+      if (o.kind==="circle"){
+        const dx=b.x-o.x, dy=b.y-o.y;
+        const d2=dx*dx+dy*dy;
+        const rr=b.r + o.r;
+        if (d2 <= rr*rr){
+          const d=Math.sqrt(d2)||0.0001;
+          const nx=dx/d, ny=dy/d;
+          const rv = reflect(b.vx,b.vy,nx,ny);
+          b.vx = rv.vx * 0.96;
+          b.vy = rv.vy * 0.96;
+          // push out
+          const push = (rr - d) + 0.9;
+          b.x += nx*push; b.y += ny*push;
+          sfx.bounce(panFromX(b.x));
+          return true;
+        }
+      } else {
+        const qx = clamp(b.x, o.x, o.x+o.w);
+        const qy = clamp(b.y, o.y, o.y+o.h);
+        let dx=b.x-qx, dy=b.y-qy;
+        const dd=dx*dx+dy*dy;
+        if (dd <= b.r*b.r){
+          let nx=0, ny=0;
+          if (dd < 0.000001){
+            // choose a normal using velocity (prefer bouncing off major axis)
+            if (Math.abs(b.vx) > Math.abs(b.vy)) nx = (b.vx>0?-1:1), ny=0;
+            else ny = (b.vy>0?-1:1), nx=0;
+          } else {
+            const d=Math.sqrt(dd);
+            nx=dx/d; ny=dy/d;
+          }
+          const rv = reflect(b.vx,b.vy,nx,ny);
+          b.vx = rv.vx * 0.96;
+          b.vy = rv.vy * 0.96;
+
+          // push out
+          const push = (b.r - Math.sqrt(dd)) + 1.0;
+          b.x += nx*push; b.y += ny*push;
+
+          sfx.bounce(panFromX(b.x));
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   // ================= Items ==================
   const ITEMS = [
     { id:"TRIPLE", name:"Triple Shot", desc:"3 projectiles in a spread", icon:"≋", base:10 },
@@ -396,7 +595,9 @@
   function makeRoom(x,y,type){
     return { x,y,type, visited:false, cleared:false, generated:false,
       neigh:{N:false,E:false,S:false,W:false},
-      enemies:[], bullets:[], pickups:[], particles:[], popups:[], shake:0
+      enemies:[], bullets:[], pickups:[], particles:[], popups:[],
+      obstacles:[],
+      shake:0
     };
   }
 
@@ -626,6 +827,11 @@
 
     const rseed=hash32(`${dungeon.seed}:${room.x},${room.y}:${room.type}:stage${stage}`);
     const rng=mulberry32(rseed);
+
+    // stage 3+ obstacles in combat rooms (normal + boss)
+    if (stage >= 3 && (room.type==="normal" || room.type==="boss")){
+      generateObstacles(room, rng, stage);
+    }
 
     if (room.type==="start"){
       room.cleared=true;
@@ -864,6 +1070,7 @@
     ovBody.innerHTML = `
       <div style="opacity:.9; font-size:13px; line-height:1.5;">
         <div style="margin-top:6px;">You keep your upgrades, coins, and hearts.</div>
+        <div style="margin-top:6px;">Stage 3+: combat rooms can have bounce obstacles.</div>
         <div style="margin-top:6px;">Stage 3+: enemies can roll <span class="kbd">≋</span> Triple and <span class="kbd">⚡</span> Rapid.</div>
         <div style="margin-top:6px;">Stage 1-2: <span class="kbd">15%</span> chance an enemy spawns upgraded.</div>
         <div style="margin-top:6px;">New enemy: <span class="kbd">Bulwark</span> blocks shots from the front — flank it.</div>
@@ -1055,8 +1262,16 @@
           }
         }
       }
+
       const cl=clampToRoom(nx,ny,player.r);
       player.x=cl.x; player.y=cl.y;
+
+      // collide with obstacles
+      resolveEntityObstacles(player);
+
+      // keep inside after push
+      const cl2=clampToRoom(player.x,player.y,player.r);
+      player.x=cl2.x; player.y=cl2.y;
     }
 
     for (let i=room.enemies.length-1;i>=0;i--){
@@ -1149,9 +1364,16 @@
         }
       }
 
+      // collide vs room bounds
       const ce=clampToRoom(e.x,e.y,e.r);
       e.x=ce.x; e.y=ce.y;
 
+      // collide vs obstacles
+      resolveEntityObstacles(e);
+      const ce2=clampToRoom(e.x,e.y,e.r);
+      e.x=ce2.x; e.y=ce2.y;
+
+      // touch player
       const rr=player.r+e.r;
       if (dist2(player.x,player.y,e.x,e.y) <= rr*rr){
         if (player.iframes<=0){
@@ -1172,6 +1394,7 @@
           if (knock){
             player.x += Math.cos(e.face||0) * knock;
             player.y += Math.sin(e.face||0) * knock;
+            resolveEntityObstacles(player);
             const cl=clampToRoom(player.x, player.y, player.r);
             player.x=cl.x; player.y=cl.y;
           }
@@ -1187,6 +1410,9 @@
       b.life -= dt;
       b.x += b.vx*dt;
       b.y += b.vy*dt;
+
+      // bounce off obstacles (stage 3+ rooms)
+      bounceBullet(b);
 
       if (b.life<=0 || b.x-b.r<bnd.left || b.x+b.r>bnd.right || b.y-b.r<bnd.top || b.y+b.r>bnd.bot){
         room.bullets.splice(i,1);
@@ -1330,6 +1556,57 @@
     ctx.fillStyle="rgba(255,255,255,0.92)";
     ctx.fillText(icons, e.x, e.y - e.r - 12);
     ctx.restore();
+  }
+
+  function drawObstacles(){
+    if (!room.obstacles || room.obstacles.length===0) return;
+    for (const o of room.obstacles){
+      // shadow
+      ctx.fillStyle="rgba(0,0,0,0.28)";
+      if (o.kind==="circle"){
+        ctx.beginPath();
+        ctx.ellipse(o.x, o.y+12, o.r*1.05, o.r*0.65, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        const g=ctx.createRadialGradient(o.x-o.r*0.25, o.y-o.r*0.25, 2, o.x, o.y, o.r*1.4);
+        g.addColorStop(0, "rgba(255,255,255,0.10)");
+        g.addColorStop(1, "rgba(110,200,255,0.10)");
+        ctx.fillStyle=g;
+        ctx.beginPath(); ctx.arc(o.x,o.y,o.r,0,Math.PI*2); ctx.fill();
+
+        ctx.strokeStyle="rgba(255,255,255,0.10)";
+        ctx.lineWidth=2;
+        ctx.beginPath(); ctx.arc(o.x,o.y,o.r,0,Math.PI*2); ctx.stroke();
+
+        ctx.save();
+        ctx.globalCompositeOperation="screen";
+        ctx.globalAlpha=0.35;
+        ctx.strokeStyle="rgba(160,255,220,0.20)";
+        ctx.lineWidth=6;
+        ctx.beginPath(); ctx.arc(o.x,o.y,o.r+2,0,Math.PI*2); ctx.stroke();
+        ctx.restore();
+      } else {
+        ctx.fillRect(o.x+2, o.y+o.h+7, o.w-4, 8);
+
+        const g=ctx.createLinearGradient(o.x,o.y,o.x+o.w,o.y+o.h);
+        g.addColorStop(0, "rgba(255,255,255,0.07)");
+        g.addColorStop(1, "rgba(110,200,255,0.08)");
+        ctx.fillStyle=g;
+        roundRect(ctx, o.x, o.y, o.w, o.h, o.rr||10, true, false);
+
+        ctx.strokeStyle="rgba(255,255,255,0.10)";
+        ctx.lineWidth=2;
+        roundRect(ctx, o.x, o.y, o.w, o.h, o.rr||10, false, true);
+
+        ctx.save();
+        ctx.globalCompositeOperation="screen";
+        ctx.globalAlpha=0.30;
+        ctx.strokeStyle="rgba(160,255,220,0.18)";
+        ctx.lineWidth=6;
+        roundRect(ctx, o.x-2, o.y-2, o.w+4, o.h+4, (o.rr||10)+2, false, true);
+        ctx.restore();
+      }
+    }
   }
 
   function drawRoom(){
@@ -1717,6 +1994,10 @@
     ctx.setTransform(1,0,0,1,sx,sy);
 
     drawRoom();
+
+    // obstacles (under bullets/enemies/player)
+    drawObstacles();
+
     for (const p of room.pickups) drawPickup(p);
     for (const b of room.bullets) drawBullet(b);
     for (const e of room.enemies) drawEnemy(e);
@@ -1734,21 +2015,23 @@
     const status = room.cleared ? "CLEARED" : (room.type==="start"||room.type==="treasure" ? "SAFE" : `${alive} ENEMY${alive===1?"":"IES"}`);
     const bossRooms = 1 + Math.floor((stage-1)/2);
 
+    const obs = (room.obstacles && room.obstacles.length) ? ` • Obstacles ${room.obstacles.length}` : "";
+
     hudEl.innerHTML =
       `<b>Stage</b> ${stage} &nbsp; <b>HP</b> ${hearts(player.hp,player.hpMax)} &nbsp; <b>Coins</b> ${player.coins} &nbsp; `+
-      `<b>Room</b> ${room.x},${room.y} <b>${room.type.toUpperCase()}</b> &nbsp; <b>Status</b> ${status} &nbsp; `+
+      `<b>Room</b> ${room.x},${room.y} <b>${room.type.toUpperCase()}</b>${obs} &nbsp; <b>Status</b> ${status} &nbsp; `+
       `<span style="opacity:.65;">Seed ${dungeon.seed}</span> `+
       `<span style="opacity:.85;">• Boss rooms: ${bossRooms} • Shots ${player.shots} • RoF ${player.fireRate.toFixed(1)}</span>`;
 
     hintEl.innerHTML =
       `<b>Move</b> WASD • <b>Shoot</b> Mouse/Arrows • <b>Shop</b> B • `+
-      `Enemies can have <b>≋</b> Triple / <b>⚡</b> Rapid • <b>Bulwark</b> blocks front shots • Clear ALL rooms to advance`;
+      `Stage 3+: bullets bounce off obstacles • Enemies can have <b>≋</b>/<b>⚡</b> • Bulwark blocks front shots • Clear ALL rooms to advance`;
     hintEl.style.display = "block";
 
     drawMiniMap();
   }
 
-  // ✅ FIX: only one time variable for the main loop
+  // Main loop
   let lastFrame = performance.now();
   function tick(now){
     const dt=Math.min(0.033, (now-lastFrame)/1000);
@@ -1769,4 +2052,3 @@
 </script>
 </body>
 </html>
-
