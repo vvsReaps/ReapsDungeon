@@ -599,7 +599,7 @@
     const target = baseRooms + extraRooms;
 
     // Boss rooms = stage (up to 8), then random 8..12
-    const bossCount = (stage <= 8)
+    const bossCount = (stage <= 3)
       ? stage
       : (8 + Math.floor(rng() * 5));
 
@@ -2325,4 +2325,3 @@
 </script>
 </body>
 </html>
-
