@@ -1,0 +1,1515 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Reaps Dungeon</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin:0; height:100%; background:#070912; overflow:hidden; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    canvas { display:block; width:100vw; height:100vh; image-rendering: pixelated; }
+
+    .hud, .hint {
+      position: fixed; left: 14px; padding: 10px 12px;
+      background: rgba(10,12,18,.60); border: 1px solid rgba(255,255,255,.08);
+      border-radius: 14px; color: rgba(255,255,255,.92); font-size: 12px;
+      backdrop-filter: blur(10px);
+      user-select:none;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      max-width: min(980px, calc(100vw - 28px));
+      line-height: 1.35;
+      z-index: 5;
+    }
+    .hud { top: 12px; }
+    .hint { bottom: 12px; color: rgba(255,255,255,.85); }
+
+    #mapWrap{
+      position: fixed; right: 14px; top: 12px;
+      background: rgba(10,12,18,.55); border: 1px solid rgba(255,255,255,.08);
+      border-radius: 14px; padding: 10px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      z-index: 5;
+    }
+    #mapTitle{ font-size: 11px; opacity:.82; margin-bottom:6px; }
+    #map { width: 170px; height: 170px; display:block; border-radius: 10px; background: rgba(255,255,255,.02); }
+
+    #overlay {
+      position: fixed; inset: 0;
+      display:none;
+      align-items:center; justify-content:center;
+      background: radial-gradient(ellipse at center, rgba(8,10,20,.55), rgba(0,0,0,.75));
+      z-index: 10;
+    }
+    .panel{
+      width: min(700px, calc(100vw - 32px));
+      border-radius: 22px;
+      padding: 18px 18px 16px;
+      background: rgba(12,14,22,.72);
+      border: 1px solid rgba(255,255,255,.10);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 25px 80px rgba(0,0,0,.55);
+      text-align:center;
+    }
+    .title{ font-size: 28px; letter-spacing: .5px; margin: 4px 0 10px; color: rgba(255,255,255,.95); }
+    .sub{ margin: 0 0 14px; opacity: .82; line-height: 1.45; font-size: 13px; }
+    .row { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top: 12px;}
+    button{
+      appearance:none; border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.08);
+      color: rgba(255,255,255,.94);
+      padding: 10px 14px;
+      border-radius: 14px;
+      cursor:pointer;
+      font-weight: 800;
+      transition: transform .06s ease, background .15s ease, opacity .15s ease;
+    }
+    button:hover{ background: rgba(255,255,255,.12); }
+    button:active{ transform: translateY(1px); }
+    button:disabled{ cursor:not-allowed; opacity:.45; }
+
+    .kbd { display:inline-block; padding: 1px 7px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); font-size: 12px; }
+    .warn { opacity: .72; font-size: 12px; margin-top: 10px; }
+
+    .shopGrid{
+      display:grid; grid-template-columns: 1fr; gap: 10px;
+      text-align:left; margin-top: 12px;
+    }
+    @media (min-width: 680px){ .shopGrid{ grid-template-columns: 1fr 1fr; } }
+
+    .shopCard{
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.05);
+      padding: 12px;
+      display:flex;
+      align-items:center;
+      gap: 12px;
+    }
+    .shopIcon{
+      width: 42px; height: 42px;
+      border-radius: 14px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.10);
+      display:flex; align-items:center; justify-content:center;
+      font-size: 20px; flex: 0 0 auto;
+    }
+    .shopMeta{ flex: 1 1 auto; min-width: 0; }
+    .shopName{ font-weight: 900; letter-spacing: .2px; }
+    .shopDesc{ opacity:.78; font-size: 12px; margin-top: 2px; }
+    .shopFoot{ opacity:.70; font-size: 11px; margin-top: 6px; }
+    .buyRow{
+      flex: 0 0 auto;
+      display:flex;
+      flex-direction:column;
+      gap: 6px;
+      align-items:flex-end;
+    }
+    .pricePill{
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.06);
+      opacity: .9;
+    }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="hud" id="hud"></div>
+<div class="hint" id="hint"></div>
+
+<div id="mapWrap">
+  <div id="mapTitle">Map</div>
+  <canvas id="map" width="170" height="170"></canvas>
+</div>
+
+<div id="overlay">
+  <div class="panel">
+    <div class="title" id="ovTitle">Reaps Dungeon</div>
+    <div class="sub" id="ovSub"></div>
+    <div id="ovBody"></div>
+    <div class="row" id="ovButtons">
+      <button id="btnPrimary">Start</button>
+      <button id="btnMute">Sound: On</button>
+      <button id="btnClose" style="display:none;">Close</button>
+    </div>
+    <div class="warn" id="ovFooter"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ================= Canvas =================
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d", { alpha:false });
+
+  const hudEl = document.getElementById("hud");
+  const hintEl = document.getElementById("hint");
+
+  const overlay = document.getElementById("overlay");
+  const ovTitle = document.getElementById("ovTitle");
+  const ovSub = document.getElementById("ovSub");
+  const ovBody = document.getElementById("ovBody");
+  const ovFooter = document.getElementById("ovFooter");
+
+  const btnPrimary = document.getElementById("btnPrimary");
+  const btnMute = document.getElementById("btnMute");
+  const btnClose = document.getElementById("btnClose");
+
+  const mapCanvas = document.getElementById("map");
+  const mapCtx = mapCanvas.getContext("2d");
+  const mapTitle = document.getElementById("mapTitle");
+
+  const BASE_W = 960, BASE_H = 540;
+  let W = BASE_W, H = BASE_H, dpr = 1;
+
+  function resize(){
+    dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+    canvas.width = BASE_W * dpr;
+    canvas.height = BASE_H * dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    W = BASE_W; H = BASE_H;
+  }
+  addEventListener("resize", resize);
+  resize();
+
+  // ================ Helpers =================
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const dist2 = (ax,ay,bx,by)=>{ const dx=ax-bx, dy=ay-by; return dx*dx+dy*dy; };
+  const norm = (x,y)=>{ const L=Math.hypot(x,y)||1; return {x:x/L,y:y/L,L}; };
+
+  function roundRect(g, x, y, w, h, r, fill=true, stroke=false){
+    const rr = Math.min(r, w/2, h/2);
+    g.beginPath();
+    g.moveTo(x+rr, y);
+    g.arcTo(x+w, y, x+w, y+h, rr);
+    g.arcTo(x+w, y+h, x, y+h, rr);
+    g.arcTo(x, y+h, x, y, rr);
+    g.arcTo(x, y, x+w, y, rr);
+    g.closePath();
+    if (fill) g.fill();
+    if (stroke) g.stroke();
+  }
+
+  function mulberry32(seed){
+    let t = seed >>> 0;
+    return function(){
+      t += 0x6D2B79F5;
+      let r = Math.imul(t ^ (t >>> 15), 1 | t);
+      r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+      return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function hash32(str){
+    let h = 2166136261 >>> 0;
+    for (let i=0;i<str.length;i++){
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+
+  // ================== SFX ===================
+  class SFX {
+    constructor(){ this.ctx=null; this.master=null; this.muted=false; this.ready=false; this.noiseBuf=null; }
+    init(){
+      if (this.ready) return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.55;
+      this.master.connect(this.ctx.destination);
+
+      const dur=0.25, sr=this.ctx.sampleRate, frames=Math.floor(sr*dur);
+      const buf=this.ctx.createBuffer(1,frames,sr);
+      const d=buf.getChannelData(0);
+      for (let i=0;i<frames;i++) d[i]=(Math.random()*2-1)*(1-i/frames*0.35);
+      this.noiseBuf=buf;
+      this.ready=true;
+    }
+    resume(){ if (this.ctx && this.ctx.state==="suspended") this.ctx.resume(); }
+    setMuted(m){ this.muted=m; if (this.master) this.master.gain.value = m?0:0.55; }
+
+    beep({freq=440,dur=0.08,type="sine",vol=0.18,slide=0,pan=0}={}){
+      if (!this.ready || this.muted) return;
+      const t=this.ctx.currentTime;
+      const o=this.ctx.createOscillator();
+      const g=this.ctx.createGain();
+      let p=null;
+      if (this.ctx.createStereoPanner) p=this.ctx.createStereoPanner();
+
+      o.type=type;
+      o.frequency.setValueAtTime(freq,t);
+      if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40,freq*slide), t+dur);
+
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(vol,t+0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+
+      if (p){ p.pan.setValueAtTime(pan,t); o.connect(g); g.connect(p); p.connect(this.master); }
+      else { o.connect(g); g.connect(this.master); }
+
+      o.start(t); o.stop(t+dur+0.01);
+    }
+    noise({dur=0.08,vol=0.16,hp=900,pan=0}={}){
+      if (!this.ready || this.muted) return;
+      const t=this.ctx.currentTime;
+      const src=this.ctx.createBufferSource();
+      src.buffer=this.noiseBuf;
+      const g=this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(vol,t+0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+      const f=this.ctx.createBiquadFilter();
+      f.type="highpass"; f.frequency.setValueAtTime(hp,t);
+
+      let p=null;
+      if (this.ctx.createStereoPanner) p=this.ctx.createStereoPanner();
+      if (p) p.pan.setValueAtTime(pan,t);
+
+      src.connect(f); f.connect(g);
+      if (p){ g.connect(p); p.connect(this.master); } else g.connect(this.master);
+
+      src.start(t); src.stop(t+dur+0.01);
+    }
+    shoot(pan=0){ this.beep({freq:560,dur:0.06,type:"triangle",vol:0.12,slide:0.65,pan}); this.noise({dur:0.03,vol:0.05,hp:1300,pan}); }
+    enemyShoot(pan=0){ this.beep({freq:320,dur:0.07,type:"sawtooth",vol:0.09,slide:1.25,pan}); }
+    hit(pan=0){ this.noise({dur:0.05,vol:0.10,hp:800,pan}); this.beep({freq:760,dur:0.04,type:"square",vol:0.06,slide:0.7,pan}); }
+    enemyDie(pan=0){ this.noise({dur:0.10,vol:0.16,hp:500,pan}); this.beep({freq:190,dur:0.12,type:"sine",vol:0.10,slide:0.6,pan}); }
+    pickup(pan=0){ this.beep({freq:740,dur:0.05,type:"sine",vol:0.12,slide:1.35,pan}); this.beep({freq:980,dur:0.05,type:"sine",vol:0.08,slide:1.15,pan}); }
+    buy(pan=0){ this.beep({freq:920,dur:0.06,type:"triangle",vol:0.12,slide:1.2,pan}); this.beep({freq:620,dur:0.10,type:"sine",vol:0.06,slide:0.9,pan}); }
+    hurt(pan=0){ this.beep({freq:110,dur:0.12,type:"sine",vol:0.18,slide:0.8,pan}); this.noise({dur:0.08,vol:0.10,hp:600,pan}); }
+    door(pan=0){ this.noise({dur:0.06,vol:0.08,hp:1100,pan}); this.beep({freq:420,dur:0.06,type:"triangle",vol:0.07,slide:0.95,pan}); }
+    deny(pan=0){ this.beep({freq:220,dur:0.10,type:"square",vol:0.12,slide:0.85,pan}); }
+  }
+  const sfx = new SFX();
+  const panFromX = x => clamp(((x/W)*2-1)*0.6, -0.6, 0.6);
+  function onUserGesture(){ sfx.init(); sfx.resume(); }
+
+  // ================= Input ==================
+  const keys = new Map();
+  const pressed = new Set();
+  const mouse = { x: W/2, y: H/2, down:false };
+
+  addEventListener("keydown", (e)=>{
+    if (!keys.get(e.code)) pressed.add(e.code);
+    keys.set(e.code,true);
+
+    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
+
+    if (e.code==="Enter" && gameState!=="playing" && gameState!=="shop") {
+      startGameFromMenu();
+    }
+    if (e.code==="KeyR") {
+      startNewRun(false);
+    }
+    if (e.code==="KeyB"){
+      if (gameState==="playing") openShop();
+      else if (gameState==="shop") closeShop();
+    }
+    if (e.code==="Escape" && gameState==="shop") closeShop();
+
+    onUserGesture();
+  }, {passive:false});
+  addEventListener("keyup", (e)=>keys.set(e.code,false));
+  canvas.addEventListener("mousemove",(e)=>{
+    const r=canvas.getBoundingClientRect();
+    mouse.x=((e.clientX-r.left)/r.width)*W;
+    mouse.y=((e.clientY-r.top)/r.height)*H;
+  });
+  canvas.addEventListener("mousedown", ()=>{ mouse.down=true; onUserGesture(); });
+  addEventListener("mouseup", ()=>mouse.down=false);
+
+  // ================= Room ===================
+  const ROOM_W = 820, ROOM_H = 460;
+  const ROOM_X = (W-ROOM_W)/2, ROOM_Y=(H-ROOM_H)/2;
+  const WALL = 18;
+  const DOOR_W = 110;
+
+  function roomBounds(){
+    return {
+      left: ROOM_X + WALL,
+      top:  ROOM_Y + WALL,
+      right: ROOM_X + ROOM_W - WALL,
+      bot: ROOM_Y + ROOM_H - WALL
+    };
+  }
+  function clampToRoom(x,y,r){
+    const b=roomBounds();
+    return { x:clamp(x,b.left+r,b.right-r), y:clamp(y,b.top+r,b.bot-r) };
+  }
+
+  const DIRS = [
+    {dx:0,dy:-1,name:"N"},
+    {dx:1,dy:0,name:"E"},
+    {dx:0,dy:1,name:"S"},
+    {dx:-1,dy:0,name:"W"},
+  ];
+  const OPP = {N:"S",S:"N",E:"W",W:"E"};
+
+  function keyOf(x,y){ return `${x},${y}`; }
+
+  function inDoorZone(dir,x,y,r){
+    const cx=W/2, cy=H/2;
+    if (dir==="N") return (y-r <= ROOM_Y+WALL+2) && Math.abs(x-cx)<=DOOR_W/2;
+    if (dir==="S") return (y+r >= ROOM_Y+ROOM_H-WALL-2) && Math.abs(x-cx)<=DOOR_W/2;
+    if (dir==="W") return (x-r <= ROOM_X+WALL+2) && Math.abs(y-cy)<=DOOR_W/2;
+    if (dir==="E") return (x+r >= ROOM_X+ROOM_W-WALL-2) && Math.abs(y-cy)<=DOOR_W/2;
+    return false;
+  }
+
+  // ================= Items ==================
+  const ITEMS = [
+    { id:"TRIPLE", name:"Triple Shot", desc:"3 projectiles in a spread", icon:"≋", base:10 },
+    { id:"RAPID",  name:"Rapid Fire",  desc:"Higher rate of fire",      icon:"⚡", base: 8 },
+    { id:"DMG",    name:"Damage Up",   desc:"Tears hit harder",         icon:"✦", base: 9 },
+    { id:"SPEED",  name:"Speed Up",    desc:"Move faster",              icon:"➤", base: 6 },
+    { id:"SHOTSPD",name:"Shot Speed",  desc:"Faster projectiles",       icon:"➠", base: 5 },
+    { id:"BIG",    name:"Big Tears",   desc:"Bigger bullets",           icon:"●", base: 6 },
+    { id:"HPUP",   name:"HP Up",       desc:"+1 heart container",       icon:"❤", base: 7 },
+  ];
+  function itemById(id){ return ITEMS.find(i=>i.id===id) || ITEMS[0]; }
+
+  function shopLineupForSeed(seed){
+    const rng=mulberry32(hash32("shop:"+seed));
+    const pool=[...ITEMS];
+    for (let i=pool.length-1;i>0;i--){
+      const j=Math.floor(rng()*(i+1));
+      [pool[i],pool[j]]=[pool[j],pool[i]];
+    }
+    return pool.slice(0,6);
+  }
+
+  // ================= Dungeon =================
+  function makeRoom(x,y,type){
+    return { x,y,type, visited:false, cleared:false, generated:false, neigh:{N:false,E:false,S:false,W:false},
+      enemies:[], bullets:[], pickups:[], particles:[], popups:[], shake:0 };
+  }
+
+  function generateDungeon(seed, stage){
+    const rng=mulberry32(seed);
+
+    const baseRooms = 14 + (rng()*7|0);
+    const extraRooms = Math.min(18, Math.floor(stage*2.2));
+    const target = baseRooms + extraRooms;
+
+    const bossCount = 1 + Math.floor((stage-1)/2);
+    const treasureCount = 1 + Math.floor((stage-1)/3);
+
+    const rooms=new Map();
+    rooms.set(keyOf(0,0), makeRoom(0,0,"start"));
+
+    let cx=0, cy=0;
+    for (let i=0;i<target*7 && rooms.size<target;i++){
+      const d=DIRS[Math.floor(rng()*DIRS.length)];
+      cx+=d.dx; cy+=d.dy;
+      const k=keyOf(cx,cy);
+      if (!rooms.has(k)) rooms.set(k, makeRoom(cx,cy,"normal"));
+      if (rng()<0.22){
+        const d2=DIRS[Math.floor(rng()*DIRS.length)];
+        cx+=d2.dx; cy+=d2.dy;
+        const k2=keyOf(cx,cy);
+        if (!rooms.has(k2)) rooms.set(k2, makeRoom(cx,cy,"normal"));
+      }
+    }
+
+    const candidates=[...rooms.values()].filter(r=>!(r.x===0 && r.y===0));
+    candidates.sort((a,b)=> (Math.abs(b.x)+Math.abs(b.y)) - (Math.abs(a.x)+Math.abs(a.y)));
+    for (let i=0;i<bossCount && i<candidates.length;i++){
+      candidates[i].type="boss";
+    }
+
+    const normals=[...rooms.values()].filter(r=>r.type==="normal");
+    normals.sort((a,b)=> (Math.abs(b.x)+Math.abs(b.y)) - (Math.abs(a.x)+Math.abs(a.y)));
+    for (let i=0;i<treasureCount && i<normals.length;i++){
+      normals[i].type="treasure";
+    }
+
+    for (const r of rooms.values()){
+      r.neigh={N:false,E:false,S:false,W:false};
+      for (const d of DIRS){
+        const nk=keyOf(r.x+d.dx, r.y+d.dy);
+        if (rooms.has(nk)) r.neigh[d.name]=true;
+      }
+    }
+
+    return { seed, rooms };
+  }
+
+  // ================= Entities =================
+  function mkPlayer(){
+    return {
+      x:W/2, y:H/2, r:12,
+      hp:6, hpMax:6,
+      coins:0,
+      speed:235,
+      dmg:1.0,
+      fireRate:6.0,
+      shotSpeed:520,
+      tearScale:1.0,
+      shots:1,
+      spread:0.0,
+      bought:{},
+      shotCd:0,
+      iframes:0,
+      lastItem:null
+    };
+  }
+
+  // BIG CHANGE: much stronger stage HP scaling
+  function stageHpMult(stage){
+    const s = Math.max(1, stage) - 1;      // 0,1,2...
+    // strong linear + quadratic ramp (keeps pace with damage stacking)
+    // Stage 1: 1.00
+    // Stage 5: 1 + 3.2 + 1.28 = 5.48x
+    // Stage 10: 1 + 7.2 + 6.48 = 14.68x
+    // Stage 20: 1 + 15.2 + 28.88 = 45.08x
+    return 1 + s*0.80 + s*s*0.08;
+  }
+
+  function spawnEnemy(room, kind, rng, stage){
+    const pad=80;
+    const x=ROOM_X+pad+rng()*(ROOM_W-2*pad);
+    const y=ROOM_Y+pad+rng()*(ROOM_H-2*pad);
+
+    const hpM = stageHpMult(stage);
+
+    if (kind==="chaser") {
+      const baseHP = 4 + (rng()*3|0); // 4-6
+      const hp = Math.max(1, Math.round(baseHP * hpM));
+      const speed = 120 + rng()*40 + Math.min(60, stage*2.2);
+      room.enemies.push({kind,x,y,r:14,hp,speed,touch:1,cd:0});
+    }
+    if (kind==="shooter") {
+      const baseHP = 3 + (rng()*3|0); // 3-5
+      const hp = Math.max(1, Math.round(baseHP * hpM));
+      const speed = 70 + rng()*25 + Math.min(45, stage*1.6);
+      room.enemies.push({kind,x,y,r:14,hp,speed,touch:1,cd:0.55+rng()*0.8});
+    }
+    if (kind==="boss") {
+      // Boss gets extra scaling on top
+      const s = Math.max(1, stage) - 1;
+      const bossHp = Math.round((70 + stage*55 + s*s*16) * (1 + s*0.10)); // BIG ramp
+      room.enemies.push({kind,x:W/2,y:H/2,r:34,hp:bossHp,maxHp:bossHp,speed:95+stage*2,touch:2,phase:0,cd:0.35});
+    }
+  }
+
+  function spawnPickup(room, type, x, y, extra={}){
+    room.pickups.push({type,x,y,r:10,t:0,...extra});
+  }
+
+  function addPopup(room,text,x,y){ room.popups.push({text,x,y,life:1.2}); }
+  function addParticles(room,x,y,n=10,kind="hit"){
+    for (let i=0;i<n;i++){
+      const a=Math.random()*Math.PI*2;
+      const sp=70+Math.random()*240;
+      room.particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.35+Math.random()*0.45,kind});
+    }
+  }
+
+  function pickItemForRoom(seed, rx, ry, tag){
+    const s=hash32(`${seed}:${rx},${ry}:${tag}`)>>>0;
+    const rng=mulberry32(s);
+    return ITEMS[Math.floor(rng()*ITEMS.length)];
+  }
+
+  function generateRoomContents(dungeon, room){
+    if (room.generated) return;
+    room.generated=true;
+
+    const rseed=hash32(`${dungeon.seed}:${room.x},${room.y}:${room.type}:stage${stage}`);
+    const rng=mulberry32(rseed);
+
+    if (room.type==="start"){
+      room.cleared=true;
+      if (rng()<0.45) spawnPickup(room,"coin", W/2+60, H/2);
+      return;
+    }
+
+    if (room.type==="treasure"){
+      const item=pickItemForRoom(dungeon.seed, room.x, room.y, "treasure");
+      spawnPickup(room,"item",W/2,H/2,{itemId:item.id,itemName:item.name,itemDesc:item.desc,icon:item.icon});
+      room.cleared=true;
+      return;
+    }
+
+    if (room.type==="boss"){
+      spawnEnemy(room,"boss",rng,stage);
+      room.cleared=false;
+      return;
+    }
+
+    const base = 3 + (rng()*4|0);
+    const extra = Math.min(10, Math.floor(stage*0.75));
+    const count = base + extra;
+
+    for (let i=0;i<count;i++){
+      spawnEnemy(room, rng()<0.55 ? "chaser" : "shooter", rng, stage);
+    }
+    room.cleared=false;
+  }
+
+  // ================= Item Effects =================
+  function applyItem(itemId){
+    switch(itemId){
+      case "TRIPLE":
+        player.shots = Math.max(player.shots, 3);
+        player.spread = Math.max(player.spread, 0.22);
+        return {name:"Triple Shot", desc:"3 projectiles in a spread"};
+      case "RAPID":
+        player.fireRate = Math.min(14, player.fireRate + 2.4);
+        return {name:"Rapid Fire", desc:"Higher rate of fire"};
+      case "DMG":
+        player.dmg += 0.75;
+        return {name:"Damage Up", desc:"Tears hit harder"};
+      case "SPEED":
+        player.speed = Math.min(330, player.speed + 25);
+        return {name:"Speed Up", desc:"Move faster"};
+      case "SHOTSPD":
+        player.shotSpeed = Math.min(720, player.shotSpeed + 70);
+        return {name:"Shot Speed", desc:"Faster projectiles"};
+      case "BIG":
+        player.tearScale = Math.min(1.8, player.tearScale + 0.25);
+        return {name:"Big Tears", desc:"Bigger bullets"};
+      case "HPUP":
+        player.hpMax += 2;
+        player.hp = Math.min(player.hpMax, player.hp + 2);
+        return {name:"HP Up", desc:"+1 heart container"};
+      default:
+        return {name:"Mystery", desc:"Something changed"};
+    }
+  }
+
+  function isItemMaxed(itemId){
+    if (itemId==="TRIPLE") return player.shots>=3;
+    if (itemId==="RAPID") return player.fireRate>=14;
+    if (itemId==="SHOTSPD") return player.shotSpeed>=720;
+    if (itemId==="BIG") return player.tearScale>=1.8;
+    if (itemId==="SPEED") return player.speed>=330;
+    return false;
+  }
+
+  function itemPrice(item){
+    const n=player.bought[item.id]||0;
+    return item.base + n*3;
+  }
+
+  // ================= Shooting =================
+  function shootPlayer(dx,dy){
+    if (player.shotCd>0) return;
+    const d=norm(dx,dy);
+    if (d.L<0.001) return;
+
+    player.shotCd = 1/player.fireRate;
+    const baseAng=Math.atan2(d.y,d.x);
+    const n=Math.max(1,player.shots);
+    const spread=(n===1)?0:player.spread;
+
+    const offsets=[];
+    if (n===1) offsets.push(0);
+    else{
+      const mid=(n-1)/2;
+      for (let i=0;i<n;i++) offsets.push((i-mid)*spread);
+    }
+
+    sfx.shoot(panFromX(player.x));
+
+    for (const off of offsets){
+      const ang=baseAng+off;
+      const vx=Math.cos(ang)*player.shotSpeed;
+      const vy=Math.sin(ang)*player.shotSpeed;
+      const bx=player.x + Math.cos(ang)*(player.r+8);
+      const by=player.y + Math.sin(ang)*(player.r+8);
+      room.bullets.push({from:"player",x:bx,y:by,vx,vy,r:5*player.tearScale,dmg:player.dmg,life:0.85});
+    }
+  }
+
+  function shootEnemy(e, dx, dy, speed=260, r=5, dmg=1){
+    const d=norm(dx,dy);
+    const bx=e.x + d.x*(e.r+10);
+    const by=e.y + d.y*(e.r+10);
+    room.bullets.push({from:"enemy",x:bx,y:by,vx:d.x*speed,vy:d.y*speed,r,dmg,life:1.2});
+    sfx.enemyShoot(panFromX(e.x));
+  }
+
+  // ================= Game State =================
+  let dungeon=null, player=null, room=null, roomK=null;
+  let pendingMove=null;
+  let fade=0, fadeDir=0;
+
+  // "menu" | "playing" | "dead" | "shop" | "stage_clear"
+  let gameState="menu";
+  let shopList=[];
+  let stage=1;
+
+  function setOverlay(on){ overlay.style.display = on ? "flex" : "none"; }
+
+  function enterRoom(k, initial=false){
+    roomK=k;
+    room=dungeon.rooms.get(roomK);
+    room.visited=true;
+    generateRoomContents(dungeon, room);
+
+    if (!initial && pendingMove){
+      const {fromDir}=pendingMove;
+      if (fromDir==="N"){ player.x=W/2; player.y=ROOM_Y+ROOM_H-18-50; }
+      if (fromDir==="S"){ player.x=W/2; player.y=ROOM_Y+18+50; }
+      if (fromDir==="E"){ player.x=ROOM_X+18+50; player.y=H/2; }
+      if (fromDir==="W"){ player.x=ROOM_X+820-18-50; player.y=H/2; }
+      pendingMove=null;
+    } else {
+      player.x=W/2; player.y=H/2;
+    }
+  }
+
+  function tryMoveRoom(dirName){
+    if (!room.neigh[dirName]) return false;
+    const open = room.cleared || room.type==="start" || room.type==="treasure";
+    if (!open) return false;
+
+    const d=[{dx:0,dy:-1,name:"N"},{dx:1,dy:0,name:"E"},{dx:0,dy:1,name:"S"},{dx:-1,dy:0,name:"W"}].find(x=>x.name===dirName);
+    const nk=`${room.x+d.dx},${room.y+d.dy}`;
+    if (!dungeon.rooms.has(nk)) return false;
+
+    fadeDir=1; fade=0;
+    pendingMove={toK:nk, fromDir: ({N:"S",S:"N",E:"W",W:"E"})[dirName]};
+    sfx.door();
+    return true;
+  }
+
+  function buildNewStageDungeon(){
+    const seed=(Math.random()*1e9)>>>0;
+    dungeon=generateDungeon(seed, stage);
+    shopList=shopLineupForSeed(seed ^ (stage*0x9e3779b9));
+    enterRoom("0,0", true);
+  }
+
+  function startNewRun(toMenu){
+    stage=1;
+    player=mkPlayer();
+    buildNewStageDungeon();
+    if (toMenu) showMenu(); else { gameState="playing"; setOverlay(false); }
+  }
+
+  function nextStage(){
+    stage++;
+    buildNewStageDungeon();
+    gameState="playing";
+    setOverlay(false);
+  }
+
+  function startGameFromMenu(){
+    onUserGesture();
+    if (!dungeon || gameState==="dead") { startNewRun(false); return; }
+    if (gameState==="stage_clear") { nextStage(); return; }
+    gameState="playing";
+    setOverlay(false);
+  }
+
+  function die(){
+    gameState="dead";
+    ovTitle.textContent="You Died";
+    ovSub.innerHTML = `Stage <span class="kbd">${stage}</span> • Coins <span class="kbd">${player.coins}</span> • Press <span class="kbd">Enter</span>`;
+    ovBody.innerHTML = "";
+    ovFooter.textContent="Tip: Press B anytime to open the shop menu.";
+    btnPrimary.textContent="Retry (New Run)";
+    btnClose.style.display="none";
+    setOverlay(true);
+  }
+
+  function showMenu(){
+    gameState="menu";
+    ovTitle.textContent="Reaps Dungeon";
+    ovSub.innerHTML = `<span class="kbd">WASD</span> move • mouse/arrow keys shoot • <span class="kbd">B</span> shop • <span class="kbd">R</span> new run`;
+    ovBody.innerHTML = "";
+    ovFooter.textContent='Tip: doors to unvisited rooms glow gold and show a "?"';
+    btnPrimary.textContent="Start";
+    btnClose.style.display="none";
+    setOverlay(true);
+  }
+
+  function stageCleared(){
+    gameState="stage_clear";
+    ovTitle.textContent = `Stage ${stage} Cleared!`;
+    ovSub.innerHTML =
+      `You cleared <span class="kbd">${dungeon.rooms.size}</span> rooms. ` +
+      `Boss rooms next stage: <span class="kbd">${1 + Math.floor((stage)/2)}</span> • ` +
+      `Press <span class="kbd">Enter</span> or click Next Stage.`;
+    ovBody.innerHTML = `
+      <div style="opacity:.9; font-size:13px; line-height:1.5;">
+        <div style="margin-top:6px;">You keep your upgrades, coins, and hearts.</div>
+        <div style="margin-top:6px;">Enemies and bosses scale up each stage.</div>
+      </div>
+    `;
+    ovFooter.textContent = "Next stage generates a fresh map (roguelike loop).";
+    btnPrimary.textContent = "Next Stage";
+    btnClose.style.display = "none";
+    setOverlay(true);
+  }
+
+  function checkAllRoomsCleared(){
+    for (const r of dungeon.rooms.values()){
+      if (r.type==="start" || r.type==="treasure") continue;
+      if (!r.cleared) return false;
+    }
+    return true;
+  }
+
+  // ================= Shop Menu =================
+  function openShop(){
+    if (!player) return;
+    gameState="shop";
+    ovTitle.textContent="Shop";
+    ovSub.innerHTML = `Stage <span class="kbd">${stage}</span> • Coins <span class="kbd">${player.coins}</span> • Quick-buy <span class="kbd">1-6</span> • Close <span class="kbd">B</span> / <span class="kbd">Esc</span>`;
+    ovFooter.textContent="Prices go up a bit if you keep buying the same thing.";
+    btnPrimary.textContent="Resume";
+    btnClose.style.display="inline-block";
+    renderShopUI();
+    setOverlay(true);
+  }
+  function closeShop(){
+    if (gameState!=="shop") return;
+    gameState="playing";
+    setOverlay(false);
+  }
+
+  function renderShopUI(){
+    const cards = shopList.map((it, idx)=>{
+      const price=itemPrice(it);
+      const maxed=isItemMaxed(it.id);
+      const disabled = maxed || player.coins < price;
+      const btnTxt = maxed ? "Maxed" : (player.coins < price ? "Too Poor" : "Buy");
+      const boughtN = player.bought[it.id] || 0;
+
+      return `
+        <div class="shopCard">
+          <div class="shopIcon">${it.icon}</div>
+          <div class="shopMeta">
+            <div class="shopName">${idx+1}. ${it.name}</div>
+            <div class="shopDesc">${it.desc}</div>
+            <div class="shopFoot">Purchased: ${boughtN} • Key: <span class="kbd">${idx+1}</span></div>
+          </div>
+          <div class="buyRow">
+            <div class="pricePill">${price} coins</div>
+            <button data-buy="${it.id}" ${disabled ? "disabled" : ""}>${btnTxt}</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    const healDisabled = player.hp >= player.hpMax || player.coins < 5;
+    const misc = `
+      <div class="shopCard">
+        <div class="shopIcon">❤</div>
+        <div class="shopMeta">
+          <div class="shopName">7. Heal</div>
+          <div class="shopDesc">+1 heart (costs 5 coins)</div>
+          <div class="shopFoot">Key: <span class="kbd">7</span></div>
+        </div>
+        <div class="buyRow">
+          <div class="pricePill">5 coins</div>
+          <button data-heal="1" ${healDisabled ? "disabled" : ""}>
+            ${player.hp >= player.hpMax ? "Full HP" : (player.coins < 5 ? "Too Poor" : "Buy")}
+          </button>
+        </div>
+      </div>
+    `;
+
+    ovBody.innerHTML = `<div class="shopGrid">${cards}${misc}</div>`;
+    ovBody.querySelectorAll("button[data-buy]").forEach(btn=>{
+      btn.addEventListener("click", ()=>buyItem(btn.getAttribute("data-buy")));
+    });
+    ovBody.querySelectorAll("button[data-heal]").forEach(btn=>{
+      btn.addEventListener("click", ()=>buyHeal());
+    });
+  }
+
+  function buyItem(itemId){
+    const it=itemById(itemId);
+    const price=itemPrice(it);
+    if (isItemMaxed(itemId) || player.coins < price){
+      sfx.deny(0);
+      return;
+    }
+    player.coins -= price;
+    player.bought[itemId] = (player.bought[itemId]||0)+1;
+
+    const info=applyItem(itemId);
+    player.lastItem=info;
+
+    sfx.buy(0);
+    if (room){
+      addPopup(room, `Bought: ${info.name} (-${price})`, player.x, player.y-28);
+      addParticles(room, player.x, player.y, 18, "spark");
+    }
+    ovSub.innerHTML = `Stage <span class="kbd">${stage}</span> • Coins <span class="kbd">${player.coins}</span> • Quick-buy <span class="kbd">1-6</span> • Close <span class="kbd">B</span> / <span class="kbd">Esc</span>`;
+    renderShopUI();
+  }
+
+  function buyHeal(){
+    const price=5;
+    if (player.coins < price || player.hp >= player.hpMax){ sfx.deny(0); return; }
+    player.coins -= price;
+    player.hp = Math.min(player.hpMax, player.hp + 2);
+    sfx.buy(0);
+    if (room){
+      addPopup(room, `Healed (-${price})`, player.x, player.y-28);
+      addParticles(room, player.x, player.y, 16, "spark");
+    }
+    ovSub.innerHTML = `Stage <span class="kbd">${stage}</span> • Coins <span class="kbd">${player.coins}</span> • Quick-buy <span class="kbd">1-6</span> • Close <span class="kbd">B</span> / <span class="kbd">Esc</span>`;
+    renderShopUI();
+  }
+
+  function shopQuickBuy(){
+    if (gameState!=="shop") return;
+    const map = {"Digit1":0,"Digit2":1,"Digit3":2,"Digit4":3,"Digit5":4,"Digit6":5};
+    for (const k in map){
+      if (pressed.has(k) || pressed.has(k.replace("Digit","Numpad"))){
+        const idx=map[k];
+        if (shopList[idx]) buyItem(shopList[idx].id);
+      }
+    }
+    if (pressed.has("Digit7") || pressed.has("Numpad7")) buyHeal();
+  }
+
+  // ================= Buttons =================
+  btnPrimary.addEventListener("click", ()=>{
+    onUserGesture();
+    if (gameState==="shop") closeShop();
+    else if (gameState==="stage_clear") nextStage();
+    else if (gameState==="dead") startNewRun(false);
+    else startGameFromMenu();
+  });
+  btnClose.addEventListener("click", ()=>{ onUserGesture(); closeShop(); });
+  btnMute.addEventListener("click", ()=>{
+    onUserGesture();
+    sfx.setMuted(!sfx.muted);
+    btnMute.textContent = `Sound: ${sfx.muted ? "Off" : "On"}`;
+  });
+
+  // ================= Update/Render =================
+  let last=performance.now();
+
+  function update(dt){
+    if (fadeDir!==0){
+      fade = clamp(fade + fadeDir*dt*3.0, 0, 1);
+      if (fadeDir===1 && fade>=1 && pendingMove){
+        enterRoom(pendingMove.toK, false);
+        fadeDir=-1;
+      } else if (fadeDir===-1 && fade<=0){
+        fadeDir=0;
+      }
+    }
+
+    const mvx=(keys.get("KeyD")?1:0)-(keys.get("KeyA")?1:0);
+    const mvy=(keys.get("KeyS")?1:0)-(keys.get("KeyW")?1:0);
+    const m=norm(mvx,mvy);
+
+    if (player.shotCd>0) player.shotCd-=dt;
+    if (player.iframes>0) player.iframes-=dt;
+
+    if (mouse.down) shootPlayer(mouse.x-player.x, mouse.y-player.y);
+    const sdx=(keys.get("ArrowRight")?1:0)-(keys.get("ArrowLeft")?1:0);
+    const sdy=(keys.get("ArrowDown")?1:0)-(keys.get("ArrowUp")?1:0);
+    if (sdx||sdy) shootPlayer(sdx,sdy);
+
+    if (fadeDir===0){
+      let nx=player.x + m.x*player.speed*dt;
+      let ny=player.y + m.y*player.speed*dt;
+
+      const b=roomBounds();
+      const nearWall = (ny-player.r<=b.top+2)||(ny+player.r>=b.bot-2)||(nx-player.r<=b.left+2)||(nx+player.r>=b.right-2);
+      if (nearWall){
+        for (const d of DIRS){
+          if (inDoorZone(d.name,nx,ny,player.r)){
+            if (tryMoveRoom(d.name)) return;
+          }
+        }
+      }
+      const cl=clampToRoom(nx,ny,player.r);
+      player.x=cl.x; player.y=cl.y;
+    }
+
+    for (let i=room.enemies.length-1;i>=0;i--){
+      const e=room.enemies[i];
+      const toP=norm(player.x-e.x, player.y-e.y);
+
+      if (e.kind==="chaser"){
+        e.x += toP.x*e.speed*dt;
+        e.y += toP.y*e.speed*dt;
+      } else if (e.kind==="shooter"){
+        const ideal=210, d=toP.L;
+        if (d<ideal-35){ e.x -= toP.x*e.speed*dt; e.y -= toP.y*e.speed*dt; }
+        else if (d>ideal+65){ e.x += toP.x*e.speed*dt; e.y += toP.y*e.speed*dt; }
+
+        e.cd -= dt;
+        if (e.cd<=0){
+          e.cd = 0.78 + Math.random()*0.55;
+          const spd = 300 + stage*8;
+          shootEnemy(e, player.x-e.x, player.y-e.y, spd, 5, 1);
+        }
+      } else if (e.kind==="boss"){
+        e.cd -= dt;
+        const t=performance.now()/1000;
+        const tx=W/2 + Math.cos(t*0.7)*160;
+        const ty=H/2 + Math.sin(t*0.9)*95;
+        const toT=norm(tx-e.x, ty-e.y);
+        e.x += toT.x*e.speed*dt;
+        e.y += toT.y*e.speed*dt;
+
+        const bulletSpeed = 260 + stage*12;
+
+        if (e.cd<=0){
+          e.phase=(e.phase+1)%3;
+          if (e.phase===0){
+            const n = 10 + Math.min(10, Math.floor(stage*0.6));
+            for (let k=0;k<n;k++){
+              const a=(k/n)*Math.PI*2;
+              shootEnemy(e, Math.cos(a), Math.sin(a), bulletSpeed, 5, 1);
+            }
+            e.cd=0.95;
+          } else if (e.phase===1){
+            const base=Math.atan2(player.y-e.y, player.x-e.x);
+            for (const off of [-0.18,0,0.18]) shootEnemy(e, Math.cos(base+off), Math.sin(base+off), bulletSpeed+60, 5, 1);
+            e.cd=0.65;
+          } else {
+            shootEnemy(e, player.x-e.x, player.y-e.y, bulletSpeed+120, 6, 1);
+            e.cd=0.35;
+          }
+        }
+      }
+
+      const ce=clampToRoom(e.x,e.y,e.r);
+      e.x=ce.x; e.y=ce.y;
+
+      const rr=player.r+e.r;
+      if (dist2(player.x,player.y,e.x,e.y) <= rr*rr){
+        if (player.iframes<=0){
+          player.hp -= e.touch;
+          player.iframes=0.85;
+          room.shake=Math.max(room.shake,10);
+          addParticles(room, player.x, player.y, 16, "hurt");
+          sfx.hurt(panFromX(player.x));
+          if (player.hp<=0){ die(); return; }
+        }
+      }
+    }
+
+    const bnd=roomBounds();
+    for (let i=room.bullets.length-1;i>=0;i--){
+      const b=room.bullets[i];
+      b.life -= dt;
+      b.x += b.vx*dt;
+      b.y += b.vy*dt;
+
+      if (b.life<=0 || b.x-b.r<bnd.left || b.x+b.r>bnd.right || b.y-b.r<bnd.top || b.y+b.r>bnd.bot){
+        room.bullets.splice(i,1);
+        continue;
+      }
+
+      if (b.from==="player"){
+        for (let j=room.enemies.length-1;j>=0;j--){
+          const e=room.enemies[j];
+          const rr=b.r+e.r;
+          if (dist2(b.x,b.y,e.x,e.y) <= rr*rr){
+            e.hp -= b.dmg;
+            room.shake=Math.max(room.shake,5);
+            addParticles(room, b.x, b.y, 10, "hit");
+            sfx.hit(panFromX(b.x));
+            room.bullets.splice(i,1);
+
+            if (e.hp<=0){
+              addParticles(room, e.x, e.y, e.kind==="boss"?60:18, "pop");
+              sfx.enemyDie(panFromX(e.x));
+
+              if (e.kind==="boss"){
+                const item=pickItemForRoom(dungeon.seed, room.x, room.y, "boss");
+                spawnPickup(room,"item",W/2,H/2,{itemId:item.id,itemName:item.name,itemDesc:item.desc,icon:item.icon});
+                for (let k=0;k<4;k++) spawnPickup(room,"coin", W/2+(k-1.5)*26, H/2+42);
+                spawnPickup(room,"heart", W/2, H/2+80);
+              } else {
+                if (Math.random()<0.22) spawnPickup(room,"coin", e.x, e.y);
+                if (Math.random()<0.10) spawnPickup(room,"heart", e.x+12, e.y);
+              }
+              room.enemies.splice(j,1);
+            }
+            break;
+          }
+        }
+      } else {
+        const rr=b.r+player.r;
+        if (dist2(b.x,b.y,player.x,player.y) <= rr*rr){
+          if (player.iframes<=0){
+            player.hp -= b.dmg;
+            player.iframes=0.85;
+            room.shake=Math.max(room.shake,12);
+            addParticles(room, player.x, player.y, 20, "hurt");
+            sfx.hurt(panFromX(player.x));
+            if (player.hp<=0){ die(); return; }
+          }
+          room.bullets.splice(i,1);
+          continue;
+        }
+      }
+    }
+
+    for (let i=room.pickups.length-1;i>=0;i--){
+      const p=room.pickups[i];
+      p.t += dt;
+      const rr=p.r+player.r;
+      if (dist2(p.x,p.y,player.x,player.y) <= rr*rr){
+        if (p.type==="coin"){ player.coins += 1; addPopup(room,"+1 coin",p.x,p.y); }
+        if (p.type==="heart"){ player.hp = Math.min(player.hpMax, player.hp+2); addPopup(room,"+HP",p.x,p.y); }
+        if (p.type==="item"){
+          const info=applyItem(p.itemId);
+          player.lastItem=info;
+          addPopup(room, `${info.name}!`, p.x, p.y);
+          addPopup(room, `${info.desc}`, p.x, p.y+16);
+        }
+        addParticles(room,p.x,p.y,14,"spark");
+        sfx.pickup(panFromX(p.x));
+        room.pickups.splice(i,1);
+      }
+    }
+
+    for (let i=room.particles.length-1;i>=0;i--){
+      const pr=room.particles[i];
+      pr.life -= dt;
+      pr.x += pr.vx*dt;
+      pr.y += pr.vy*dt;
+      pr.vx *= Math.pow(0.02, dt);
+      pr.vy *= Math.pow(0.02, dt);
+      if (pr.life<=0) room.particles.splice(i,1);
+    }
+
+    for (let i=room.popups.length-1;i>=0;i--){
+      room.popups[i].life -= dt;
+      if (room.popups[i].life<=0) room.popups.splice(i,1);
+    }
+
+    if (!room.cleared && (room.type==="normal" || room.type==="boss")){
+      if (room.enemies.length===0){
+        room.cleared=true;
+        room.shake=Math.max(room.shake,8);
+        if (room.type==="normal" && Math.random()<0.35) spawnPickup(room,"coin",W/2,H/2);
+        if (checkAllRoomsCleared()){
+          stageCleared();
+          return;
+        }
+      }
+    }
+
+    if (room.shake>0) room.shake=Math.max(0, room.shake - dt*18);
+  }
+
+  function hearts(hp,hpMax){
+    const full=Math.floor(hp/2);
+    const half=hp%2;
+    const total=Math.floor(hpMax/2);
+    let s="";
+    for (let i=0;i<total;i++){
+      if (i<full) s+="❤️";
+      else if (i===full && half) s+="💔";
+      else s+="🖤";
+    }
+    return s;
+  }
+
+  function drawRoom(){
+    const bg=ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,"#070912");
+    bg.addColorStop(1,"#050611");
+    ctx.fillStyle=bg;
+    ctx.fillRect(0,0,W,H);
+
+    let c0="#0f1326", c1="#0b1022";
+    if (room.type==="treasure"){ c0="#0f1a22"; c1="#0a141c"; }
+    if (room.type==="boss"){ c0="#1b0f18"; c1="#110814"; }
+
+    const floor=ctx.createLinearGradient((W-820)/2,(H-460)/2,(W-820)/2,(H-460)/2+460);
+    floor.addColorStop(0,c0); floor.addColorStop(1,c1);
+    ctx.fillStyle=floor;
+    roundRect(ctx, (W-820)/2,(H-460)/2,820,460,26,true,false);
+
+    ctx.fillStyle="rgba(255,255,255,0.030)";
+    roundRect(ctx, (W-820)/2+9, (H-460)/2+9, 802, 442, 20, true, false);
+
+    ctx.fillStyle="rgba(15,20,38,0.88)";
+    roundRect(ctx, (W-820)/2+18, (H-460)/2+18, 784, 424, 16, true, false);
+
+    ctx.strokeStyle="rgba(255,255,255,0.10)";
+    ctx.lineWidth=2;
+    roundRect(ctx, (W-820)/2,(H-460)/2,820,460,26,false,true);
+
+    drawDoors();
+  }
+
+  function neighborRoom(dirName){
+    const d=DIRS.find(x=>x.name===dirName);
+    const nk=keyOf(room.x+d.dx, room.y+d.dy);
+    return dungeon.rooms.get(nk) || null;
+  }
+
+  function drawDoors(){
+    const open = room.cleared || room.type==="start" || room.type==="treasure";
+    const cx=W/2, cy=H/2;
+
+    function doorRect(dir){
+      const ROOM_W = 820, ROOM_H = 460;
+      const ROOM_X = (W-ROOM_W)/2, ROOM_Y=(H-ROOM_H)/2;
+      const WALL = 18;
+      const DOOR_W = 110;
+      if (dir==="N") return {x:cx-DOOR_W/2, y:ROOM_Y+WALL-3, w:DOOR_W, h:22};
+      if (dir==="S") return {x:cx-DOOR_W/2, y:ROOM_Y+ROOM_H-WALL-19, w:DOOR_W, h:22};
+      if (dir==="W") return {x:ROOM_X+WALL-3, y:cy-DOOR_W/2, w:22, h:DOOR_W};
+      if (dir==="E") return {x:ROOM_X+ROOM_W-WALL-19, y:cy-DOOR_W/2, w:22, h:DOOR_W};
+    }
+
+    for (const d of DIRS){
+      if (!room.neigh[d.name]) continue;
+      const r=doorRect(d.name);
+      const nr=neighborRoom(d.name);
+      const unvisited = nr ? !nr.visited : false;
+
+      ctx.fillStyle="rgba(0,0,0,0.32)";
+      roundRect(ctx, r.x-4, r.y-4, r.w+8, r.h+8, 10, true, false);
+
+      let fill, stroke, glyph;
+      if (!open){
+        fill="rgba(255,140,170,0.12)";
+        stroke="rgba(255,140,170,0.22)";
+        glyph="!";
+      } else if (unvisited){
+        fill="rgba(255,220,140,0.22)";
+        stroke="rgba(255,220,140,0.32)";
+        glyph="?";
+      } else {
+        fill="rgba(120,255,190,0.16)";
+        stroke="rgba(120,255,190,0.26)";
+        glyph="";
+      }
+
+      ctx.fillStyle=fill;
+      ctx.strokeStyle=stroke;
+      ctx.lineWidth=2;
+      roundRect(ctx, r.x, r.y, r.w, r.h, 9, true, true);
+
+      ctx.globalAlpha = open ? 0.90 : 0.55;
+      ctx.fillStyle = open ? (unvisited ? "rgba(255,240,200,0.95)" : "rgba(170,255,220,0.95)") : "rgba(255,200,215,0.80)";
+      ctx.beginPath();
+      const px=r.x+r.w/2, py=r.y+r.h/2;
+      if (d.name==="N"){ ctx.moveTo(px,py-6); ctx.lineTo(px-7,py+6); ctx.lineTo(px+7,py+6); }
+      if (d.name==="S"){ ctx.moveTo(px,py+6); ctx.lineTo(px-7,py-6); ctx.lineTo(px+7,py-6); }
+      if (d.name==="W"){ ctx.moveTo(px-6,py); ctx.lineTo(px+6,py-7); ctx.lineTo(px+6,py+7); }
+      if (d.name==="E"){ ctx.moveTo(px+6,py); ctx.lineTo(px-6,py-7); ctx.lineTo(px-6,py+7); }
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha=1;
+
+      if (glyph){
+        ctx.fillStyle="rgba(255,255,255,0.9)";
+        ctx.font="12px ui-sans-serif, system-ui";
+        ctx.textAlign="center";
+        ctx.textBaseline="middle";
+        ctx.fillText(glyph, px, py);
+      }
+    }
+  }
+
+  function drawPlayer(){
+    const blink = player.iframes>0 && ((performance.now()/90|0)%2===0);
+    ctx.fillStyle="rgba(0,0,0,0.35)";
+    ctx.beginPath(); ctx.ellipse(player.x, player.y+12, player.r*1.0, player.r*0.6, 0,0,Math.PI*2); ctx.fill();
+
+    ctx.globalAlpha = blink ? 0.35 : 1;
+    const grd=ctx.createRadialGradient(player.x-5,player.y-7,2,player.x,player.y,player.r*1.6);
+    grd.addColorStop(0,"rgba(235,240,255,1)");
+    grd.addColorStop(1,"rgba(145,165,255,1)");
+    ctx.fillStyle=grd;
+    ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle="rgba(255,255,255,0.18)";
+    ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.stroke();
+
+    const a=norm(mouse.x-player.x, mouse.y-player.y);
+    const ex=a.x*2.2, ey=a.y*2.2;
+    ctx.globalAlpha = blink ? 0.20 : 1;
+    ctx.fillStyle="rgba(18,22,38,0.86)";
+    ctx.beginPath(); ctx.arc(player.x-4+ex, player.y-2+ey, 2.2, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(player.x+4+ex, player.y-2+ey, 2.2, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha=1;
+  }
+
+  function drawEnemy(e){
+    ctx.fillStyle="rgba(0,0,0,0.40)";
+    ctx.beginPath(); ctx.ellipse(e.x, e.y+14, e.r*1.05, e.r*0.65, 0,0,Math.PI*2); ctx.fill();
+
+    if (e.kind==="boss"){
+      const grd=ctx.createRadialGradient(e.x-10,e.y-12,4,e.x,e.y,e.r*1.8);
+      grd.addColorStop(0,"rgba(255,205,220,1)");
+      grd.addColorStop(1,"rgba(251,113,133,1)");
+      ctx.fillStyle=grd;
+      ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle="rgba(255,255,255,0.14)";
+      ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.stroke();
+
+      const pct=clamp(e.hp/(e.maxHp||40),0,1);
+      const bw=340, bh=10;
+      const x=W/2-bw/2, y=((H-460)/2)+14;
+      ctx.fillStyle="rgba(0,0,0,0.32)";
+      roundRect(ctx,x,y,bw,bh,999,true,false);
+      const hpg=ctx.createLinearGradient(x,y,x+bw,y);
+      hpg.addColorStop(0,"rgba(255,140,170,0.86)");
+      hpg.addColorStop(1,"rgba(255,220,240,0.70)");
+      ctx.fillStyle=hpg;
+      roundRect(ctx,x,y,bw*pct,bh,999,true,false);
+      return;
+    }
+
+    const isChaser=e.kind==="chaser";
+    const grd=ctx.createRadialGradient(e.x-6,e.y-8,3,e.x,e.y,e.r*1.7);
+    grd.addColorStop(0, isChaser ? "rgba(180,255,220,1)" : "rgba(170,205,255,1)");
+    grd.addColorStop(1, isChaser ? "rgba(65,210,170,1)"  : "rgba(85,140,255,1)");
+    ctx.fillStyle=grd;
+    ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle="rgba(255,255,255,0.14)";
+    ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.stroke();
+  }
+
+  function drawBullet(b){
+    ctx.save();
+    ctx.globalCompositeOperation="screen";
+    const col = b.from==="player" ? "rgba(210,235,255," : "rgba(255,175,200,";
+    const halo=ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.r*2.3);
+    halo.addColorStop(0, `${col}0.35)`);
+    halo.addColorStop(1, `${col}0)`);
+    ctx.fillStyle=halo;
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r*2.3,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+
+    const core=ctx.createRadialGradient(b.x-1,b.y-1,1,b.x,b.y,b.r*1.8);
+    if (b.from==="player"){ core.addColorStop(0,"rgba(255,255,255,1)"); core.addColorStop(1,"rgba(180,205,255,1)");}
+    else { core.addColorStop(0,"rgba(255,220,230,1)"); core.addColorStop(1,"rgba(255,120,150,1)");}
+    ctx.fillStyle=core;
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();
+  }
+
+  function drawPickup(p){
+    const bob=Math.sin(p.t*6)*4;
+    ctx.fillStyle="rgba(0,0,0,0.30)";
+    ctx.beginPath(); ctx.ellipse(p.x,p.y+12,p.r*0.9,p.r*0.55,0,0,Math.PI*2); ctx.fill();
+
+    if (p.type==="coin"){
+      const grd=ctx.createRadialGradient(p.x-4,p.y-6+bob,2,p.x,p.y+bob,p.r*1.8);
+      grd.addColorStop(0,"rgba(255,245,200,1)");
+      grd.addColorStop(1,"rgba(255,195,90,1)");
+      ctx.fillStyle=grd;
+      ctx.beginPath(); ctx.arc(p.x,p.y+bob,p.r,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle="rgba(255,255,255,0.22)";
+      ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(p.x,p.y+bob,p.r,0,Math.PI*2); ctx.stroke();
+      return;
+    }
+
+    if (p.type==="heart"){
+      const grd=ctx.createRadialGradient(p.x-5,p.y-8+bob,2,p.x,p.y+bob,p.r*2.1);
+      grd.addColorStop(0,"rgba(255,220,230,1)");
+      grd.addColorStop(1,"rgba(255,90,125,1)");
+      ctx.fillStyle=grd;
+      ctx.beginPath();
+      const x=p.x, y=p.y+bob, s=p.r*1.1;
+      ctx.moveTo(x, y+s*0.45);
+      ctx.bezierCurveTo(x-s*0.9, y-s*0.05, x-s*0.55, y-s*0.85, x, y-s*0.15);
+      ctx.bezierCurveTo(x+s*0.55, y-s*0.85, x+s*0.9, y-s*0.05, x, y+s*0.45);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle="rgba(255,255,255,0.20)";
+      ctx.lineWidth=2;
+      ctx.stroke();
+      return;
+    }
+
+    if (p.type==="item"){
+      const bg=ctx.createLinearGradient(p.x-18,p.y-18+bob,p.x+18,p.y+18+bob);
+      bg.addColorStop(0,"rgba(170,255,220,0.15)");
+      bg.addColorStop(1,"rgba(120,200,255,0.12)");
+      ctx.fillStyle=bg;
+      roundRect(ctx,p.x-18,p.y-18+bob,36,36,11,true,false);
+      ctx.strokeStyle="rgba(200,255,235,0.24)";
+      ctx.lineWidth=2;
+      roundRect(ctx,p.x-18,p.y-18+bob,36,36,11,false,true);
+
+      ctx.fillStyle="rgba(230,255,245,0.92)";
+      ctx.font="18px ui-sans-serif, system-ui";
+      ctx.textAlign="center";
+      ctx.textBaseline="middle";
+      ctx.fillText(p.icon||"✦", p.x, p.y+bob);
+
+      ctx.globalAlpha=0.70;
+      ctx.fillStyle="rgba(255,255,255,0.82)";
+      ctx.font="12px ui-sans-serif, system-ui";
+      ctx.textBaseline="top";
+      ctx.fillText(p.itemName||"Item", p.x, p.y+28+bob);
+      ctx.globalAlpha=1;
+    }
+  }
+
+  function drawParticles(){
+    for (const pr of room.particles){
+      const a=clamp(pr.life/0.75,0,1);
+      let col="rgba(255,255,255,";
+      if (pr.kind==="hit") col="rgba(210,235,255,";
+      if (pr.kind==="hurt") col="rgba(255,160,190,";
+      if (pr.kind==="pop") col="rgba(255,240,200,";
+      if (pr.kind==="spark") col="rgba(170,255,220,";
+      ctx.globalAlpha=a;
+      ctx.fillStyle=`${col}${0.9*a})`;
+      ctx.fillRect(pr.x, pr.y, 2, 2);
+    }
+    ctx.globalAlpha=1;
+  }
+
+  function drawPopups(){
+    if (!room.popups.length) return;
+    ctx.save();
+    ctx.textAlign="center";
+    ctx.font="14px ui-sans-serif, system-ui";
+    for (const p of room.popups){
+      const t=clamp(p.life/1.2,0,1);
+      const lift=(1-t)*18;
+      ctx.globalAlpha=clamp(t,0,1);
+      ctx.fillStyle="rgba(0,0,0,0.45)";
+      ctx.fillText(p.text, p.x+1, p.y-lift+1);
+      ctx.fillStyle="rgba(240,255,250,0.92)";
+      ctx.fillText(p.text, p.x, p.y-lift);
+    }
+    ctx.restore();
+  }
+
+  function drawMiniMap(){
+    if (!dungeon || !room) return;
+    const rooms=[...dungeon.rooms.values()];
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    for (const r of rooms){
+      minX=Math.min(minX,r.x); maxX=Math.max(maxX,r.x);
+      minY=Math.min(minY,r.y); maxY=Math.max(maxY,r.y);
+    }
+    minX--; maxX++; minY--; maxY++;
+    const gridW=maxX-minX+1;
+    const gridH=maxY-minY+1;
+
+    mapCtx.clearRect(0,0,mapCanvas.width,mapCanvas.height);
+    const w=mapCanvas.width, h=mapCanvas.height;
+    const cell=Math.floor(Math.min(w/gridW, h/gridH));
+    const ox=Math.floor((w-gridW*cell)/2);
+    const oy=Math.floor((h-gridH*cell)/2);
+
+    mapCtx.globalAlpha=0.35;
+    mapCtx.fillStyle="rgba(255,255,255,0.04)";
+    mapCtx.fillRect(0,0,w,h);
+    mapCtx.globalAlpha=1;
+
+    function cellXY(rx,ry){
+      return {cx: ox + (rx-minX)*cell, cy: oy + (ry-minY)*cell};
+    }
+
+    for (const r of rooms){
+      if (!r.visited) continue;
+      for (const d of DIRS){
+        const nk=keyOf(r.x+d.dx, r.y+d.dy);
+        const nr=dungeon.rooms.get(nk);
+        if (!nr || nr.visited) continue;
+        const {cx,cy}=cellXY(nr.x,nr.y);
+        mapCtx.strokeStyle="rgba(255,255,255,0.18)";
+        mapCtx.lineWidth=2;
+        mapCtx.strokeRect(cx+2,cy+2,cell-4,cell-4);
+      }
+    }
+
+    for (const r of rooms){
+      if (!r.visited) continue;
+      const {cx,cy}=cellXY(r.x,r.y);
+      let fill="rgba(170,200,255,0.16)";
+      if (r.type==="start") fill="rgba(170,255,210,0.18)";
+      if (r.type==="treasure") fill="rgba(255,220,140,0.16)";
+      if (r.type==="boss") fill="rgba(255,160,190,0.14)";
+      mapCtx.fillStyle=fill;
+      mapCtx.fillRect(cx+2,cy+2,cell-4,cell-4);
+      mapCtx.strokeStyle="rgba(255,255,255,0.12)";
+      mapCtx.lineWidth=1.5;
+      mapCtx.strokeRect(cx+2,cy+2,cell-4,cell-4);
+    }
+
+    const cur=cellXY(room.x,room.y);
+    mapCtx.strokeStyle="rgba(255,255,255,0.85)";
+    mapCtx.lineWidth=2;
+    mapCtx.strokeRect(cur.cx+1,cur.cy+1,cell-2,cell-2);
+
+    mapTitle.textContent = `Map • Stage ${stage} • ${room.type.toUpperCase()}`;
+  }
+
+  function render(){
+    let sx=0, sy=0;
+    if (room && room.shake>0){
+      sx=(Math.random()*2-1)*room.shake;
+      sy=(Math.random()*2-1)*room.shake;
+    }
+    ctx.setTransform(1,0,0,1,sx,sy);
+
+    drawRoom();
+
+    for (const p of room.pickups) drawPickup(p);
+    for (const b of room.bullets) drawBullet(b);
+    for (const e of room.enemies) drawEnemy(e);
+    drawPlayer();
+    drawParticles();
+    drawPopups();
+
+    ctx.setTransform(1,0,0,1,0,0);
+    if (fade>0){
+      ctx.fillStyle=`rgba(0,0,0,${fade})`;
+      ctx.fillRect(0,0,W,H);
+    }
+
+    const alive=room.enemies.length;
+    const status = room.cleared ? "CLEARED" : (room.type==="start"||room.type==="treasure" ? "SAFE" : `${alive} ENEMY${alive===1?"":"IES"}`);
+    const bossRooms = 1 + Math.floor((stage-1)/2);
+    hudEl.innerHTML =
+      `<b>Stage</b> ${stage} &nbsp; <b>HP</b> ${hearts(player.hp,player.hpMax)} &nbsp; <b>Coins</b> ${player.coins} &nbsp; `+
+      `<b>Room</b> ${room.x},${room.y} <b>${room.type.toUpperCase()}</b> &nbsp; <b>Status</b> ${status} &nbsp; `+
+      `<span style="opacity:.65;">Seed ${dungeon.seed}</span> `+
+      `<span style="opacity:.85;">• Boss rooms: ${bossRooms} • Shots ${player.shots} • RoF ${player.fireRate.toFixed(1)}</span>`;
+
+    hintEl.innerHTML =
+      `<b>Move</b> WASD • <b>Shoot</b> Mouse/Arrows • <b>Shop</b> B • <b>New run</b> R • `+
+      `Unvisited doors glow <b>gold</b> with a <b>?</b> • Clear ALL rooms to advance`;
+    hintEl.style.display = "block";
+
+    drawMiniMap();
+  }
+
+  function tick(now){
+    const dt=Math.min(0.033, (now-last)/1000);
+    last=now;
+
+    if (gameState==="playing") update(dt);
+    else if (gameState==="shop") shopQuickBuy();
+
+    render();
+    pressed.clear();
+    requestAnimationFrame(tick);
+  }
+
+  // ================= Boot =================
+  startNewRun(true);
+  requestAnimationFrame(tick);
+
+})();
+</script>
+</body>
+</html>
