@@ -1081,7 +1081,7 @@
     if (!player || !dungeon) return;
 
     // Always grant coins
-    player.coins += 50;
+    player.coins += 500;
 
     if (stage < 3){
       stage = 3;
@@ -1089,11 +1089,11 @@
       gameState = "playing";
       setOverlay(false);
 
-      addPopup(room, "CHEAT: Stage 3 (+50 coins)", W/2, ROOM_Y + 46);
+      addPopup(room, "CHEAT: Stage 3 (+500 coins)", W/2, ROOM_Y + 46);
       addParticles(room, W/2, H/2, 22, "spark");
       sfx.buy(0);
     } else {
-      addPopup(room, "CHEAT: +50 coins", player.x, player.y - 28);
+      addPopup(room, "CHEAT: +500 coins", player.x, player.y - 28);
       addParticles(room, player.x, player.y, 14, "spark");
       sfx.buy(panFromX(player.x));
     }
@@ -2028,3 +2028,4 @@
 </script>
 </body>
 </html>
+
