@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Isaac-ish (Stages + Shop Menu + Enemy Mods + Bulwark)</title>
+  <title>Reaps Dungeon v3.0</title>
   <style>
     :root { color-scheme: dark; }
     html, body { margin:0; height:100%; background:#070912; overflow:hidden; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
@@ -128,7 +128,7 @@
 
 <div id="overlay">
   <div class="panel">
-    <div class="title" id="ovTitle">Tiny Roguelike</div>
+    <div class="title" id="ovTitle">Reaps Dungeon</div>
     <div class="sub" id="ovSub"></div>
     <div id="ovBody"></div>
     <div class="row" id="ovButtons">
@@ -845,7 +845,7 @@
 
   function showMenu(){
     gameState="menu";
-    ovTitle.textContent="Tiny Roguelike";
+    ovTitle.textContent="Reaps Dungeon";
     ovSub.innerHTML = `<span class="kbd">WASD</span> move • mouse/arrow keys shoot • <span class="kbd">B</span> shop`;
     ovBody.innerHTML = "";
     ovFooter.textContent='Tip: unvisited doors glow gold and show a "?"';
@@ -1769,3 +1769,4 @@
 </script>
 </body>
 </html>
+
