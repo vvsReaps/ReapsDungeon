@@ -777,8 +777,8 @@
 
     if (kind==="boss") {
       // Pick boss type per boss room:
-      // ~55% Bomb Boss (tankier, bombs + telegraphed explosions), else classic boss.
-      const bossType = (rng() < 0.55) ? "bomb" : "classic";
+      // ~20% Bomb Boss (tankier, bombs + telegraphed explosions), else classic boss.
+      const bossType = (rng() < 0.20) ? "bomb" : "classic";
 
       const s = Math.max(1, stage) - 1;
       const baseBossHp = Math.round((70 + stage*55 + s*s*16) * (1 + s*0.10));
@@ -2332,3 +2332,4 @@
 </script>
 </body>
 </html>
+
