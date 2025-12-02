@@ -1,10 +1,9 @@
-
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Reaps Dungeon v2.0</title>
+  <title>Isaac-ish (Stages + Shop Menu + Enemy Mods + Bulwark)</title>
   <style>
     :root { color-scheme: dark; }
     html, body { margin:0; height:100%; background:#070912; overflow:hidden; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
@@ -129,11 +128,12 @@
 
 <div id="overlay">
   <div class="panel">
-    <div class="title" id="ovTitle">Reaps Dungeon</div>
+    <div class="title" id="ovTitle">Tiny Roguelike</div>
     <div class="sub" id="ovSub"></div>
     <div id="ovBody"></div>
     <div class="row" id="ovButtons">
       <button id="btnPrimary">Start</button>
+      <button id="btnRestart" style="display:none;">New Run</button>
       <button id="btnMute">Sound: On</button>
       <button id="btnClose" style="display:none;">Close</button>
     </div>
@@ -157,6 +157,7 @@
   const ovFooter = document.getElementById("ovFooter");
 
   const btnPrimary = document.getElementById("btnPrimary");
+  const btnRestart = document.getElementById("btnRestart");
   const btnMute = document.getElementById("btnMute");
   const btnClose = document.getElementById("btnClose");
 
@@ -293,9 +294,9 @@
     enemyDie(pan=0){ this.noise({dur:0.10,vol:0.16,hp:500,pan}); this.beep({freq:190,dur:0.12,type:"sine",vol:0.10,slide:0.6,pan}); }
     pickup(pan=0){ this.beep({freq:740,dur:0.05,type:"sine",vol:0.12,slide:1.35,pan}); this.beep({freq:980,dur:0.05,type:"sine",vol:0.08,slide:1.15,pan}); }
     buy(pan=0){ this.beep({freq:920,dur:0.06,type:"triangle",vol:0.12,slide:1.2,pan}); this.beep({freq:620,dur:0.10,type:"sine",vol:0.06,slide:0.9,pan}); }
-    hurt(pan=0){ this.beep({freq:110,dur:0.12,type:"sine",vol:0.18,slide:0.8,pan}); this.noise({dur:0.08,vol:0.10,hp:600,pan}); }
     door(pan=0){ this.noise({dur:0.06,vol:0.08,hp:1100,pan}); this.beep({freq:420,dur:0.06,type:"triangle",vol:0.07,slide:0.95,pan}); }
     deny(pan=0){ this.beep({freq:220,dur:0.10,type:"square",vol:0.12,slide:0.85,pan}); }
+    hurt(pan=0){ this.beep({freq:110,dur:0.12,type:"sine",vol:0.18,slide:0.8,pan}); this.noise({dur:0.08,vol:0.10,hp:600,pan}); }
   }
   const sfx = new SFX();
   const panFromX = x => clamp(((x/W)*2-1)*0.6, -0.6, 0.6);
@@ -313,7 +314,6 @@
     if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
 
     if (e.code==="Enter" && gameState!=="playing" && gameState!=="shop") startGameFromMenu();
-    if (e.code==="KeyR") startNewRun(false);
 
     if (e.code==="KeyB"){
       if (gameState==="playing") openShop();
@@ -470,7 +470,6 @@
     return 1 + s*0.80 + s*s*0.08;
   }
 
-  // enemy “items” from stage 3+, with a 15% “early upgraded” chance on stages 1–2
   function rollEnemyMods(e, rng, stage){
     e.shots = 1;
     e.spread = 0;
@@ -490,17 +489,14 @@
         e.modTriple = true;
       }
       if (both || !pickTriple){
-        e.rapid = 1.45; // mild early rapid
+        e.rapid = 1.45;
         e.modRapid = true;
       }
 
-      // If a chaser rolls upgrades early, let it actually USE them
       if (e.kind === "chaser"){
         e.canSpit = true;
         e.spitCd = 1.10 + rng()*1.10;
       }
-
-      // If a bulwark rolls upgrades early, let it shoot sometimes too
       if (e.kind === "bulwark"){
         e.canShoot = true;
         if (typeof e.shootCd !== "number") e.shootCd = 0.95 + rng()*0.85;
@@ -527,8 +523,6 @@
     if (e.modTriple || e.modRapid){
       const bonus = 1.15 + (e.modTriple && e.modRapid ? 0.20 : 0.00);
       e.hp = Math.round(e.hp * bonus);
-
-      // make sure “item mods” matter for bulwarks too
       if (e.kind === "bulwark") e.canShoot = true;
     }
   }
@@ -564,9 +558,8 @@
       room.enemies.push(e);
     }
 
-    // NEW: Bulwark (shielder)
     if (kind==="bulwark") {
-      const baseHP = 10 + (rng()*7|0); // tankier by design
+      const baseHP = 10 + (rng()*7|0);
       const hp = Math.max(1, Math.round(baseHP * hpM));
       const speed = 78 + rng()*18 + Math.min(35, stage*1.2);
 
@@ -577,7 +570,7 @@
         speed,
         touch: 1,
         face: null,
-        shieldHalf: 0.95,     // ~109° half-angle (blocks a big front arc)
+        shieldHalf: 0.95,
         dashCd: 1.4 + rng()*1.0,
         dashT: 0,
         dashSpeed: 370 + stage*10,
@@ -657,7 +650,6 @@
     const extra = Math.min(10, Math.floor(stage*0.75));
     const count = base + extra;
 
-    // bulwark chance ramps a bit with stage
     const bulwarkChance = clamp(0.10 + stage*0.02, 0.10, 0.22);
 
     for (let i=0;i<count;i++){
@@ -845,18 +837,20 @@
     ovSub.innerHTML = `Stage <span class="kbd">${stage}</span> • Coins <span class="kbd">${player.coins}</span> • Press <span class="kbd">Enter</span>`;
     ovBody.innerHTML = "";
     ovFooter.textContent="Tip: Press B anytime to open the shop menu.";
-    btnPrimary.textContent="Retry (New Run)";
+    btnPrimary.textContent="Retry";
+    btnRestart.style.display="inline-block";
     btnClose.style.display="none";
     setOverlay(true);
   }
 
   function showMenu(){
     gameState="menu";
-    ovTitle.textContent="Reaps Dungeon";
-    ovSub.innerHTML = `<span class="kbd">WASD</span> move • mouse/arrow keys shoot • <span class="kbd">B</span> shop • <span class="kbd">R</span> new run`;
+    ovTitle.textContent="Tiny Roguelike";
+    ovSub.innerHTML = `<span class="kbd">WASD</span> move • mouse/arrow keys shoot • <span class="kbd">B</span> shop`;
     ovBody.innerHTML = "";
     ovFooter.textContent='Tip: unvisited doors glow gold and show a "?"';
     btnPrimary.textContent="Start";
+    btnRestart.style.display="inline-block";
     btnClose.style.display="none";
     setOverlay(true);
   }
@@ -877,6 +871,7 @@
     `;
     ovFooter.textContent = "Next stage generates a fresh map (roguelike loop).";
     btnPrimary.textContent = "Next Stage";
+    btnRestart.style.display="none";
     btnClose.style.display = "none";
     setOverlay(true);
   }
@@ -897,6 +892,7 @@
     ovSub.innerHTML = `Stage <span class="kbd">${stage}</span> • Coins <span class="kbd">${player.coins}</span> • Quick-buy <span class="kbd">1-6</span> • Close <span class="kbd">B</span> / <span class="kbd">Esc</span>`;
     ovFooter.textContent="Prices go up a bit if you keep buying the same thing.";
     btnPrimary.textContent="Resume";
+    btnRestart.style.display="none";
     btnClose.style.display="inline-block";
     renderShopUI();
     setOverlay(true);
@@ -1011,6 +1007,10 @@
     else if (gameState==="dead") startNewRun(false);
     else startGameFromMenu();
   });
+  btnRestart.addEventListener("click", ()=>{
+    onUserGesture();
+    startNewRun(false);
+  });
   btnClose.addEventListener("click", ()=>{ onUserGesture(); closeShop(); });
   btnMute.addEventListener("click", ()=>{
     onUserGesture();
@@ -1019,10 +1019,7 @@
   });
 
   // ================= Update/Render =================
-  let last=performance.now();
-
   function update(dt){
-    // fade room transition
     if (fadeDir!==0){
       fade = clamp(fade + fadeDir*dt*3.0, 0, 1);
       if (fadeDir===1 && fade>=1 && pendingMove){
@@ -1033,7 +1030,6 @@
       }
     }
 
-    // move
     const mvx=(keys.get("KeyD")?1:0)-(keys.get("KeyA")?1:0);
     const mvy=(keys.get("KeyS")?1:0)-(keys.get("KeyW")?1:0);
     const m=norm(mvx,mvy);
@@ -1041,18 +1037,15 @@
     if (player.shotCd>0) player.shotCd-=dt;
     if (player.iframes>0) player.iframes-=dt;
 
-    // shoot
     if (mouse.down) shootPlayer(mouse.x-player.x, mouse.y-player.y);
     const sdx=(keys.get("ArrowRight")?1:0)-(keys.get("ArrowLeft")?1:0);
     const sdy=(keys.get("ArrowDown")?1:0)-(keys.get("ArrowUp")?1:0);
     if (sdx||sdy) shootPlayer(sdx,sdy);
 
-    // shop hotkeys handled elsewhere
     if (fadeDir===0){
       let nx=player.x + m.x*player.speed*dt;
       let ny=player.y + m.y*player.speed*dt;
 
-      // door check
       const b=roomBounds();
       const nearWall = (ny-player.r<=b.top+2)||(ny+player.r>=b.bot-2)||(nx-player.r<=b.left+2)||(nx+player.r>=b.right-2);
       if (nearWall){
@@ -1066,7 +1059,6 @@
       player.x=cl.x; player.y=cl.y;
     }
 
-    // enemies
     for (let i=room.enemies.length-1;i>=0;i--){
       const e=room.enemies[i];
       const toP=norm(player.x-e.x, player.y-e.y);
@@ -1098,12 +1090,10 @@
         }
       }
       else if (e.kind==="bulwark"){
-        // face the player (slow turning so you can flank)
         const target = Math.atan2(player.y-e.y, player.x-e.x);
         if (typeof e.face !== "number") e.face = target;
         e.face = lerpAngle(e.face, target, clamp(0.9*dt, 0, 1));
 
-        // dash sometimes (shield bash)
         if (e.dashT > 0){
           e.dashT -= dt;
           e.x += Math.cos(e.face) * e.dashSpeed * dt;
@@ -1119,7 +1109,6 @@
           }
         }
 
-        // optional shooting (especially meaningful when it has ≋ / ⚡)
         if (e.canShoot){
           e.shootCd -= dt * rapid;
           if (e.shootCd <= 0 && e.dashT <= 0){
@@ -1160,11 +1149,9 @@
         }
       }
 
-      // clamp enemy to room
       const ce=clampToRoom(e.x,e.y,e.r);
       e.x=ce.x; e.y=ce.y;
 
-      // contact damage (bulwark dash hits harder + knocks you back)
       const rr=player.r+e.r;
       if (dist2(player.x,player.y,e.x,e.y) <= rr*rr){
         if (player.iframes<=0){
@@ -1194,7 +1181,6 @@
       }
     }
 
-    // bullets
     const bnd=roomBounds();
     for (let i=room.bullets.length-1;i>=0;i--){
       const b=room.bullets[i];
@@ -1212,13 +1198,12 @@
           const e=room.enemies[j];
           const rr=b.r+e.r;
           if (dist2(b.x,b.y,e.x,e.y) <= rr*rr){
-            // NEW: Bulwark shield blocks shots from the front
+
             if (e.kind==="bulwark"){
               const face = (typeof e.face === "number") ? e.face : Math.atan2(player.y-e.y, player.x-e.x);
               const angToBullet = Math.atan2(b.y - e.y, b.x - e.x);
               const dAng = Math.abs(angleNorm(angToBullet - face));
               if (dAng <= (e.shieldHalf || 0.95)){
-                // blocked!
                 room.shake = Math.max(room.shake, 2);
                 addParticles(room, b.x, b.y, 10, "spark");
                 sfx.deny(panFromX(e.x));
@@ -1227,11 +1212,9 @@
               }
             }
 
-            // normal damage
             e.hp -= b.dmg;
             room.shake=Math.max(room.shake,5);
             addParticles(room, b.x, b.y, 10, "hit");
-            sfx.hit(panFromX(b.x));
             room.bullets.splice(i,1);
 
             if (e.hp<=0){
@@ -1248,6 +1231,8 @@
                 if (Math.random()<0.10) spawnPickup(room,"heart", e.x+12, e.y);
               }
               room.enemies.splice(j,1);
+            } else {
+              sfx.hit(panFromX(b.x));
             }
             break;
           }
@@ -1269,7 +1254,6 @@
       }
     }
 
-    // pickups
     for (let i=room.pickups.length-1;i>=0;i--){
       const p=room.pickups[i];
       p.t += dt;
@@ -1289,7 +1273,6 @@
       }
     }
 
-    // particles
     for (let i=room.particles.length-1;i>=0;i--){
       const pr=room.particles[i];
       pr.life -= dt;
@@ -1300,13 +1283,11 @@
       if (pr.life<=0) room.particles.splice(i,1);
     }
 
-    // popups
     for (let i=room.popups.length-1;i>=0;i--){
       room.popups[i].life -= dt;
       if (room.popups[i].life<=0) room.popups.splice(i,1);
     }
 
-    // clear check
     if (!room.cleared && (room.type==="normal" || room.type==="boss")){
       if (room.enemies.length===0){
         room.cleared=true;
@@ -1510,7 +1491,6 @@
       ctx.lineWidth=2;
       ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.stroke();
 
-      // shield (front arc)
       const face = (typeof e.face === "number") ? e.face : 0;
       const half = e.shieldHalf || 0.95;
       const R = e.r + 10;
@@ -1535,7 +1515,6 @@
       ctx.arc(0,0,R, -half, +half);
       ctx.stroke();
 
-      // little shield “cap”
       ctx.globalAlpha = 0.95;
       ctx.fillStyle="rgba(160,255,220,0.80)";
       roundRect(ctx, R-4, -8, 10, 16, 6, true, false);
@@ -1762,16 +1741,18 @@
       `<span style="opacity:.85;">• Boss rooms: ${bossRooms} • Shots ${player.shots} • RoF ${player.fireRate.toFixed(1)}</span>`;
 
     hintEl.innerHTML =
-      `<b>Move</b> WASD • <b>Shoot</b> Mouse/Arrows • <b>Shop</b> B • <b>New run</b> R • `+
+      `<b>Move</b> WASD • <b>Shoot</b> Mouse/Arrows • <b>Shop</b> B • `+
       `Enemies can have <b>≋</b> Triple / <b>⚡</b> Rapid • <b>Bulwark</b> blocks front shots • Clear ALL rooms to advance`;
     hintEl.style.display = "block";
 
     drawMiniMap();
   }
 
+  // ✅ FIX: only one time variable for the main loop
+  let lastFrame = performance.now();
   function tick(now){
-    const dt=Math.min(0.033, (now-last)/1000);
-    last=now;
+    const dt=Math.min(0.033, (now-lastFrame)/1000);
+    lastFrame=now;
 
     if (gameState==="playing") update(dt);
     else if (gameState==="shop") shopQuickBuy();
@@ -1788,4 +1769,3 @@
 </script>
 </body>
 </html>
-
