@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Reaps Dungeon 6.0</title>
+  <title>Reaps Dungeon 7.0</title>
   <style>
     :root { color-scheme: dark; }
     html, body { margin:0; height:100%; background:#070912; overflow:hidden; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
@@ -233,7 +233,7 @@
       if (!AC) return;
       this.ctx = new AC();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.55;
+      this.master.gain.value = 0.85;
       this.master.connect(this.ctx.destination);
 
       const dur=0.25, sr=this.ctx.sampleRate, frames=Math.floor(sr*dur);
@@ -244,7 +244,7 @@
       this.ready=true;
     }
     resume(){ if (this.ctx && this.ctx.state==="suspended") this.ctx.resume(); }
-    setMuted(m){ this.muted=m; if (this.master) this.master.gain.value = m?0:0.55; }
+    setMuted(m){ this.muted=m; if (this.master) this.master.gain.value = m?0:0.85; }
 
     beep({freq=440,dur=0.08,type="sine",vol=0.18,slide=0,pan=0}={}){
       if (!this.ready || this.muted) return;
@@ -304,9 +304,221 @@
       this.beep({freq:95,dur:0.14,type:"sine",vol:0.08,slide:0.75,pan});
     }
   }
+
+  // ================= Boss Beat (WebAudio music) =================
+  class BossBeat {
+    constructor(){
+      this.ctx=null;
+      this.bus=null;
+      this.noiseBuf=null;
+
+      this.tempo=178;
+      this.masterVol=0.32;
+      this.swing=0.06;
+
+      this.isActive=false;
+      this.timer=null;
+      this.step=0;
+      this.nextTime=0;
+      this.lookahead=0.025;
+      this.scheduleAhead=0.12;
+
+      this._stopToken=0;
+    }
+
+    init(ctx, masterNode){
+      if (this.ctx) return;
+      if (!ctx || !masterNode) return;
+
+      this.ctx = ctx;
+
+      this.bus = ctx.createGain();
+      this.bus.gain.value = 0;
+      this.bus.connect(masterNode);
+
+      const dur=0.25, sr=ctx.sampleRate, frames=Math.floor(sr*dur);
+      const buf=ctx.createBuffer(1,frames,sr);
+      const d=buf.getChannelData(0);
+      for (let i=0;i<frames;i++) d[i]=(Math.random()*2-1)*(1-i/frames*0.35);
+      this.noiseBuf=buf;
+    }
+
+    setActive(on){
+      if (!this.ctx || !this.bus) return;
+      const t=this.ctx.currentTime;
+
+      if (on && !this.isActive){
+        this.isActive=true;
+        this._stopToken++;
+        this.start();
+        this.bus.gain.cancelScheduledValues(t);
+        this.bus.gain.setValueAtTime(this.bus.gain.value, t);
+        this.bus.gain.linearRampToValueAtTime(this.masterVol, t+0.18);
+      } else if (!on && this.isActive){
+        this.isActive=false;
+        const token=++this._stopToken;
+        this.bus.gain.cancelScheduledValues(t);
+        this.bus.gain.setValueAtTime(this.bus.gain.value, t);
+        this.bus.gain.linearRampToValueAtTime(0, t+0.15);
+        setTimeout(()=>{ if (this._stopToken===token) this.stop(); }, 220);
+      }
+    }
+
+    start(){
+      if (this.timer) return;
+      this.step=0;
+      this.nextTime=this.ctx.currentTime+0.05;
+      this.timer=setInterval(()=>this.scheduler(), this.lookahead*1000);
+    }
+
+    stop(){
+      if (!this.timer) return;
+      clearInterval(this.timer);
+      this.timer=null;
+    }
+
+    scheduler(){
+      while (this.nextTime < this.ctx.currentTime + this.scheduleAhead){
+        this.scheduleStep(this.step, this.nextTime);
+        this.advance();
+      }
+    }
+
+    advance(){
+      const spb=60/this.tempo;
+      const stepDur=spb/4; // 16ths
+      const swing = (this.step%2===1) ? this.swing*stepDur : 0;
+      this.nextTime += stepDur + swing;
+      this.step=(this.step+1)&15;
+    }
+
+    kick(t){
+      const ctx=this.ctx;
+
+      const o=ctx.createOscillator();
+      const g=ctx.createGain();
+      o.type="sine";
+      o.frequency.setValueAtTime(170, t);
+      o.frequency.exponentialRampToValueAtTime(48, t+0.11);
+
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.95, t+0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+0.18);
+
+      o.connect(g); g.connect(this.bus);
+      o.start(t); o.stop(t+0.22);
+
+      const n=ctx.createBufferSource();
+      n.buffer=this.noiseBuf;
+      const hp=ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.setValueAtTime(2500,t);
+      const ng=ctx.createGain();
+      ng.gain.setValueAtTime(0.12, t);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t+0.02);
+      n.connect(hp); hp.connect(ng); ng.connect(this.bus);
+      n.start(t); n.stop(t+0.03);
+    }
+
+    snare(t){
+      const ctx=this.ctx;
+      const n=ctx.createBufferSource();
+      n.buffer=this.noiseBuf;
+
+      const bp=ctx.createBiquadFilter();
+      bp.type="bandpass";
+      bp.frequency.setValueAtTime(1800, t);
+      bp.Q.setValueAtTime(0.9, t);
+
+      const g=ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.40, t+0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+0.12);
+
+      n.connect(bp); bp.connect(g); g.connect(this.bus);
+      n.start(t); n.stop(t+0.14);
+
+      const o=ctx.createOscillator();
+      const og=ctx.createGain();
+      o.type="square";
+      o.frequency.setValueAtTime(240, t);
+      o.frequency.exponentialRampToValueAtTime(120, t+0.06);
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(0.14, t+0.004);
+      og.gain.exponentialRampToValueAtTime(0.0001, t+0.08);
+      o.connect(og); og.connect(this.bus);
+      o.start(t); o.stop(t+0.10);
+    }
+
+    hat(t, open=false){
+      const ctx=this.ctx;
+      const n=ctx.createBufferSource();
+      n.buffer=this.noiseBuf;
+
+      const hp=ctx.createBiquadFilter();
+      hp.type="highpass";
+      hp.frequency.setValueAtTime(6500, t);
+
+      const g=ctx.createGain();
+      const dur=open ? 0.085 : 0.035;
+      const peak=open ? 0.12 : 0.075;
+
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(peak, t+0.002);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+
+      n.connect(hp); hp.connect(g); g.connect(this.bus);
+      n.start(t); n.stop(t+dur+0.01);
+    }
+
+    bass(t, freq){
+      const ctx=this.ctx;
+
+      const o=ctx.createOscillator();
+      o.type="square";
+      o.frequency.setValueAtTime(freq, t);
+
+      const lp=ctx.createBiquadFilter();
+      lp.type="lowpass";
+      lp.frequency.setValueAtTime(900, t);
+      lp.Q.setValueAtTime(0.7, t);
+
+      const g=ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.22, t+0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+0.11);
+
+      o.connect(lp); lp.connect(g); g.connect(this.bus);
+      o.start(t); o.stop(t+0.13);
+    }
+
+    scheduleStep(step, t){
+      const kickSteps = new Set([0,4,8,12,10,14]);
+      if (kickSteps.has(step)) this.kick(t);
+
+      if (step===4 || step===12) this.snare(t);
+
+      if (step===2 || step===6 || step===10 || step===14) this.hat(t, true);
+      if (step%2===1) this.hat(t, false);
+
+      const bassMidi = [40,40,43,45,43,40,38,40];
+      if (step%2===0){
+        const idx=(step/2)&7;
+        const midi=bassMidi[idx];
+        const freq = 440 * Math.pow(2,(midi-69)/12);
+        this.bass(t, freq);
+      }
+    }
+  }
+
   const sfx = new SFX();
+  const bossBeat = new BossBeat();
+
   const panFromX = x => clamp(((x/W)*2-1)*0.6, -0.6, 0.6);
-  function onUserGesture(){ sfx.init(); sfx.resume(); }
+
+  function onUserGesture(){
+    sfx.init();
+    sfx.resume();
+    bossBeat.init(sfx.ctx, sfx.master);
+  }
 
   // ================= Input ==================
   const keys = new Map();
@@ -314,7 +526,8 @@
   const mouse = { x: W/2, y: H/2, down:false };
 
   addEventListener("keydown", (e)=>{
-    if (!keys.get(e.code)) pressed.add(e.code);
+    const firstDown = !keys.get(e.code);
+    if (firstDown) pressed.add(e.code);
     keys.set(e.code,true);
 
     if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
@@ -327,7 +540,7 @@
     }
     if (e.code==="Escape" && gameState==="shop") closeShop();
 
-    // CHEAT: press P to skip to stage 3 and +50 coins
+    // CHEAT: press U to skip to later stage and +500 coins
     if (e.code==="KeyU" && gameState==="playing"){
       cheatToStage3();
     }
@@ -413,7 +626,7 @@
     const tries = 120;
 
     function okCircle(x,y,r){
-      if (x-r < b.left+6 || x+r > b.right-6 || y-r < b.top+6 || y+r > b.bot-6) return false;
+      if (x-r < b.left+6 || x+r > b.right-6 || y-r < b.top+6 || y+r > b.bot-r-6) return false;
       for (const k of keep){
         if (circleRectOverlap(x,y,r+10, k.x,k.y,k.w,k.h)) return false;
       }
@@ -588,7 +801,7 @@
       neigh:{N:false,E:false,S:false,W:false},
       enemies:[], bullets:[], pickups:[], particles:[], popups:[],
       obstacles:[],
-      bombs: [] // bomb objects for Bomb Boss
+      bombs: []
     };
   }
 
@@ -598,7 +811,6 @@
     const extraRooms = Math.min(18, Math.floor(stage*2.2));
     const target = baseRooms + extraRooms;
 
-    // Boss rooms = stage (up to 8), then random 8..12
     const bossCount = (stage <= 2)
       ? stage
       : (5 + Math.floor(rng() * 15));
@@ -779,14 +991,12 @@
     }
 
     if (kind==="boss") {
-      // Pick boss type per boss room:
-      // ~20% Bomb Boss (tankier, bombs + telegraphed explosions), else classic boss.
       const bossType = (rng() < 0.35) ? "bomb" : "classic";
 
       const s = Math.max(1, stage) - 1;
       const baseBossHp = Math.round((70 + stage*55 + s*s*16) * (1 + s*0.10));
       const bossHp = bossType==="bomb"
-        ? Math.round(baseBossHp * 1.85 + stage*40)   // MUCH tankier
+        ? Math.round(baseBossHp * 1.85 + stage*40)
         : baseBossHp;
 
       const e={
@@ -797,15 +1007,12 @@
         hp:bossHp, maxHp:bossHp,
         speed:(bossType==="bomb" ? 82 : (95+stage*2)),
         touch:2,
-        // classic timers
         phase:0, cd:0.35,
-        // bomb boss timers
         bombCd: (bossType==="bomb" ? (0.85 + rng()*0.55) : 0),
         fanCd:  (bossType==="bomb" ? (1.25 + rng()*0.65) : 0),
         ringCd: (bossType==="bomb" ? (2.10 + rng()*0.85) : 0),
       };
 
-      // Keep bosses consistent (no random triple/rapid mods)
       e.shots = 1;
       e.spread = 0;
       e.rapid = 1;
@@ -837,7 +1044,6 @@
 
   // ================= Bombs (for Bomb Boss) =================
   function spawnBombAt(x,y, radius, fuse){
-    const b=roomBounds();
     const pad=radius + 12;
     const p=clampToRoom(x,y,pad);
     room.bombs.push({
@@ -862,11 +1068,10 @@
           bb.exploded = true;
           bb.boomLife = 0.18;
 
-          // damage player if inside radius at moment of explosion
           const rr = bb.radius + player.r;
           if (dist2(bb.x,bb.y,player.x,player.y) <= rr*rr){
             if (player.iframes <= 0){
-              player.hp -= 2;          // 1 heart
+              player.hp -= 2;
               player.iframes = 0.95;
               addParticles(room, player.x, player.y, 24, "hurt");
               sfx.boom(panFromX(player.x));
@@ -889,7 +1094,7 @@
 
   function clearRoomHazards(){
     if (room){
-      room.bombs.length = 0; // clear bombs (prevents “cheap” post-clear explosions)
+      room.bombs.length = 0;
     }
   }
 
@@ -897,7 +1102,7 @@
   let pendingMove=null;
   let fade=0, fadeDir=0;
 
-  let gameState="menu"; // "menu" | "playing" | "dead" | "shop" | "stage_clear"
+  let gameState="menu";
   let shopList=[];
   let stage=1;
 
@@ -1136,7 +1341,7 @@
 
     ovBody.innerHTML = `
       <div style="margin-top:6px; opacity:.85; font-size:12px;">
-        New Boss Added!
+        New Boss & Music Added!
       </div>
     `;
 
@@ -1182,16 +1387,15 @@
   function cheatToStage3(){
     if (!player || !dungeon) return;
 
-    // Always grant coins
     player.coins += 500;
 
-    if (stage < 3){
-      stage = 5;
-      buildNewStageDungeon();     // new random map, keep your build/coins/hp
+    if (stage < 2){
+      stage = 2;
+      buildNewStageDungeon();
       gameState = "playing";
       setOverlay(false);
 
-      addPopup(room, "CHEAT: Stage 5 (+500 coins)", W/2, ROOM_Y + 46);
+      addPopup(room, "CHEAT: Stage 2 (+500 coins)", W/2, ROOM_Y + 46);
       addParticles(room, W/2, H/2, 22, "spark");
       sfx.buy(0);
     } else {
@@ -1382,7 +1586,6 @@
       player.x=cl2.x; player.y=cl2.y;
     }
 
-    // update bombs (telegraphs, explosions)
     updateBombs(dt);
 
     for (let i=room.enemies.length-1;i>=0;i--){
@@ -1446,8 +1649,6 @@
       }
       else if (e.kind==="boss"){
         if (e.bossType==="bomb"){
-          // ===== Bomb King behavior =====
-          // slow drifting orbit + 3 attacks: bombs, fan, ring
           const t=performance.now()/1000;
           const tx=W/2 + Math.cos(t*0.55 + 1.2)*170;
           const ty=H/2 + Math.sin(t*0.65 + 0.6)*110;
@@ -1455,7 +1656,6 @@
           e.x += toT.x*e.speed*dt;
           e.y += toT.y*e.speed*dt;
 
-          // Bombs: throw near player (telegraphed)
           e.bombCd -= dt;
           if (e.bombCd <= 0){
             e.bombCd = 0.70 + Math.random()*0.70 - Math.min(0.18, stage*0.01);
@@ -1466,7 +1666,6 @@
             spawnBombAt(player.x + jx, player.y + jy, radius, fuse);
           }
 
-          // Fan shot: colored spread toward player
           e.fanCd -= dt;
           if (e.fanCd <= 0){
             e.fanCd = 1.25 + Math.random()*0.75 - Math.min(0.20, stage*0.01);
@@ -1482,7 +1681,6 @@
             sfx.enemyShoot(panFromX(e.x));
           }
 
-          // Ring: periodic shrapnel ring
           e.ringCd -= dt;
           if (e.ringCd <= 0){
             e.ringCd = 2.05 + Math.random()*0.95;
@@ -1495,7 +1693,6 @@
             sfx.enemyShoot(panFromX(e.x));
           }
         } else {
-          // ===== Classic boss (your original) =====
           e.cd -= dt * rapid;
 
           const t=performance.now()/1000;
@@ -1603,7 +1800,7 @@
               sfx.enemyDie(panFromX(e.x));
 
               if (e.kind==="boss"){
-                clearRoomHazards(); // clear bombs on boss death
+                clearRoomHazards();
                 const item=pickItemForRoom(dungeon.seed, room.x, room.y, "boss");
                 spawnPickup(room,"item",W/2,H/2,{itemId:item.id,itemName:item.name,itemDesc:item.desc,icon:item.icon});
                 for (let k=0;k<4;k++) spawnPickup(room,"coin", W/2+(k-1.5)*26, H/2+42);
@@ -1672,7 +1869,7 @@
     if (!room.cleared && (room.type==="normal" || room.type==="boss")){
       if (room.enemies.length===0){
         room.cleared=true;
-        clearRoomHazards(); // clear bombs on room clear
+        clearRoomHazards();
         if (room.type==="normal" && Math.random()<0.35) spawnPickup(room,"coin",W/2,H/2);
         if (checkAllRoomsCleared()){
           stageCleared();
@@ -1695,7 +1892,7 @@
     return s;
   }
 
-  // ================= Drawing (mostly unchanged) =================
+  // ================= Drawing =================
   function drawEnemyModsIcon(e){
     if (!e.modTriple && !e.modRapid) return;
     const icons = (e.modTriple ? "≋" : "") + (e.modRapid ? "⚡" : "");
@@ -1769,25 +1966,21 @@
         const pulse = 0.55 + 0.45*Math.sin((1-t)*18 + bb.t*8);
         const a = clamp(0.18 + (1-t)*0.55, 0.18, 0.75);
 
-        // shadow
         ctx.globalAlpha = 0.30;
         ctx.fillStyle = "rgba(0,0,0,0.40)";
         ctx.beginPath();
         ctx.ellipse(bb.x, bb.y+10, bb.radius*0.55, bb.radius*0.35, 0, 0, Math.PI*2);
         ctx.fill();
 
-        // telegraph ring
         ctx.globalAlpha = a;
         ctx.strokeStyle = "rgba(255,120,120,0.75)";
         ctx.lineWidth = 3;
         ctx.beginPath(); ctx.arc(bb.x, bb.y, bb.radius, 0, Math.PI*2); ctx.stroke();
 
-        // soft fill
         ctx.globalAlpha = a*0.22;
         ctx.fillStyle = "rgba(255,120,120,0.35)";
         ctx.beginPath(); ctx.arc(bb.x, bb.y, bb.radius, 0, Math.PI*2); ctx.fill();
 
-        // center bomb dot
         ctx.globalAlpha = 0.92;
         const r = 10 + (1-t)*3*pulse;
         const g = ctx.createRadialGradient(bb.x-3, bb.y-5, 2, bb.x, bb.y, r*1.9);
@@ -1799,7 +1992,6 @@
         ctx.lineWidth=2;
         ctx.beginPath(); ctx.arc(bb.x, bb.y, r, 0, Math.PI*2); ctx.stroke();
 
-        // fuse glyph
         ctx.globalAlpha = 0.95;
         ctx.fillStyle = "rgba(20,18,18,0.75)";
         ctx.font = "14px ui-sans-serif, system-ui";
@@ -1809,7 +2001,6 @@
 
         ctx.globalAlpha = 1;
       } else {
-        // explosion flash
         const k = clamp(bb.boomLife / 0.18, 0, 1);
         ctx.save();
         ctx.globalCompositeOperation = "screen";
@@ -1950,7 +2141,6 @@
     ctx.globalAlpha=1;
   }
 
-  // --------- START RENDER HELPERS ----------
   function drawEnemy(e){
     ctx.fillStyle="rgba(0,0,0,0.40)";
     ctx.beginPath(); ctx.ellipse(e.x, e.y+14, e.r*1.05, e.r*0.65, 0,0,Math.PI*2); ctx.fill();
@@ -1968,7 +2158,6 @@
         ctx.lineWidth=2;
         ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.stroke();
 
-        // crown (simple)
         ctx.save();
         ctx.translate(e.x, e.y - e.r - 6);
         ctx.globalAlpha = 0.92;
@@ -1993,7 +2182,6 @@
         ctx.beginPath(); ctx.arc(6,9,2.6,0,Math.PI*2); ctx.fill();
         ctx.restore();
 
-        // bomb icon
         ctx.save();
         ctx.globalAlpha=0.80;
         ctx.font="18px ui-sans-serif, system-ui";
@@ -2015,7 +2203,6 @@
         ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.stroke();
       }
 
-      // HP bar
       const pct=clamp(e.hp/(e.maxHp||40),0,1);
       const bw=340, bh=10;
       const x=W/2-bw/2, y=ROOM_Y+14;
@@ -2032,7 +2219,6 @@
       ctx.fillStyle=hpg;
       roundRect(ctx,x,y,bw*pct,bh,999,true,false);
 
-      // label
       ctx.save();
       ctx.globalAlpha = 0.80;
       ctx.font="11px ui-sans-serif, system-ui";
@@ -2258,16 +2444,12 @@
 
     mapTitle.textContent = `Map • Stage ${stage} • ${room.type.toUpperCase()}`;
   }
-  // --------- END RENDER HELPERS ----------
 
   function render(){
-    // No screen shake: always render with DPR transform
     ctx.setTransform(dpr,0,0,dpr,0,0);
 
     drawRoom();
     drawObstacles();
-
-    // bombs render below bullets/enemies (telegraph on floor)
     drawBombs();
 
     for (const p of room.pickups) drawPickup(p);
@@ -2282,7 +2464,6 @@
       ctx.fillRect(0,0,W,H);
     }
 
-    // restore (not strictly required, but keeps ctx sane)
     ctx.setTransform(dpr,0,0,dpr,0,0);
 
     const alive=room.enemies.length;
@@ -2313,6 +2494,10 @@
     if (gameState==="playing") update(dt);
     else if (gameState==="shop") shopQuickBuy();
 
+    // Auto boss music only in boss rooms (and only after user gesture initializes audio)
+    const inBossRoom = (gameState==="playing" && room && room.type==="boss");
+    bossBeat.setActive(inBossRoom);
+
     render();
     pressed.clear();
     requestAnimationFrame(tick);
@@ -2325,6 +2510,3 @@
 </script>
 </body>
 </html>
-
-
-
