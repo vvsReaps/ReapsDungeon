@@ -1,9 +1,10 @@
+
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Reaps Dungeon</title>
+  <title>Isaac-ish (Stages + Shop Menu + Enemy Mods + Bulwark)</title>
   <style>
     :root { color-scheme: dark; }
     html, body { margin:0; height:100%; background:#070912; overflow:hidden; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
@@ -128,7 +129,7 @@
 
 <div id="overlay">
   <div class="panel">
-    <div class="title" id="ovTitle">Reaps Dungeon</div>
+    <div class="title" id="ovTitle">Tiny Roguelike</div>
     <div class="sub" id="ovSub"></div>
     <div id="ovBody"></div>
     <div class="row" id="ovButtons">
@@ -180,6 +181,16 @@
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
   const dist2 = (ax,ay,bx,by)=>{ const dx=ax-bx, dy=ay-by; return dx*dx+dy*dy; };
   const norm = (x,y)=>{ const L=Math.hypot(x,y)||1; return {x:x/L,y:y/L,L}; };
+
+  function angleNorm(a){
+    while (a <= -Math.PI) a += Math.PI*2;
+    while (a >  Math.PI)  a -= Math.PI*2;
+    return a;
+  }
+  function lerpAngle(a,b,t){
+    const d = angleNorm(b - a);
+    return a + d * t;
+  }
 
   function roundRect(g, x, y, w, h, r, fill=true, stroke=false){
     const rr = Math.min(r, w/2, h/2);
@@ -454,25 +465,52 @@
     };
   }
 
-  // strong HP scaling
   function stageHpMult(stage){
     const s = Math.max(1, stage) - 1;
     return 1 + s*0.80 + s*s*0.08;
   }
 
-  // NEW: enemy “items” from stage 3+
+  // enemy “items” from stage 3+, with a 15% “early upgraded” chance on stages 1–2
   function rollEnemyMods(e, rng, stage){
     e.shots = 1;
     e.spread = 0;
-    e.rapid = 1;        // >1 means cooldown ticks down faster
+    e.rapid = 1;
     e.modTriple = false;
     e.modRapid = false;
 
-    if (stage < 3) return;
+    if (stage < 3){
+      if (rng() >= 0.15) return; // 15% chance overall
+
+      const both = rng() < 0.10; // 1.5% overall
+      const pickTriple = both || (rng() < 0.50);
+
+      if (pickTriple){
+        e.shots = 3;
+        e.spread = 0.22;
+        e.modTriple = true;
+      }
+      if (both || !pickTriple){
+        e.rapid = 1.45; // mild early rapid
+        e.modRapid = true;
+      }
+
+      // If a chaser rolls upgrades early, let it actually USE them
+      if (e.kind === "chaser"){
+        e.canSpit = true;
+        e.spitCd = 1.10 + rng()*1.10;
+      }
+
+      // If a bulwark rolls upgrades early, let it shoot sometimes too
+      if (e.kind === "bulwark"){
+        e.canShoot = true;
+        if (typeof e.shootCd !== "number") e.shootCd = 0.95 + rng()*0.85;
+      }
+
+      e.hp = Math.round(e.hp * (both ? 1.25 : 1.12));
+      return;
+    }
 
     const t = stage - 3;
-
-    // ramps up with stage
     const tripleChance = Math.min(0.18 + t*0.040, 0.60);
     const rapidChance  = Math.min(0.22 + t*0.050, 0.70);
 
@@ -482,14 +520,16 @@
       e.modTriple = true;
     }
     if (rng() < rapidChance){
-      e.rapid = 1.55 + Math.min(1.30, t*0.10); // ~1.55 → 2.85
+      e.rapid = 1.55 + Math.min(1.30, t*0.10);
       e.modRapid = true;
     }
 
-    // if the enemy has “items”, bump its HP a bit so it feels upgraded
     if (e.modTriple || e.modRapid){
-      const bonus = 1.15 + (e.modTriple && e.modRapid ? 0.20 : 0.00); // 1.15x or 1.35x
+      const bonus = 1.15 + (e.modTriple && e.modRapid ? 0.20 : 0.00);
       e.hp = Math.round(e.hp * bonus);
+
+      // make sure “item mods” matter for bulwarks too
+      if (e.kind === "bulwark") e.canShoot = true;
     }
   }
 
@@ -507,9 +547,8 @@
 
       const e={kind,x,y,r:14,hp,speed,touch:1,cd:0};
 
-      // from stage 3+, some chasers also spit bullets (so triple/rapid matters)
       e.canSpit = stage>=3 && rng() < Math.min(0.22 + (stage-3)*0.04, 0.55);
-      e.spitCd = 0.7 + rng()*1.0; // seconds between spits (modified by rapid)
+      e.spitCd = 0.7 + rng()*1.0;
 
       rollEnemyMods(e, rng, stage);
       room.enemies.push(e);
@@ -521,6 +560,30 @@
       const speed = 70 + rng()*25 + Math.min(45, stage*1.6);
 
       const e={kind,x,y,r:14,hp,speed,touch:1,cd:0.55+rng()*0.8};
+      rollEnemyMods(e, rng, stage);
+      room.enemies.push(e);
+    }
+
+    // NEW: Bulwark (shielder)
+    if (kind==="bulwark") {
+      const baseHP = 10 + (rng()*7|0); // tankier by design
+      const hp = Math.max(1, Math.round(baseHP * hpM));
+      const speed = 78 + rng()*18 + Math.min(35, stage*1.2);
+
+      const e={
+        kind, x, y,
+        r:16,
+        hp,
+        speed,
+        touch: 1,
+        face: null,
+        shieldHalf: 0.95,     // ~109° half-angle (blocks a big front arc)
+        dashCd: 1.4 + rng()*1.0,
+        dashT: 0,
+        dashSpeed: 370 + stage*10,
+        canShoot: (stage>=3 && rng() < Math.min(0.30 + (stage-3)*0.03, 0.55)),
+        shootCd: 0.95 + rng()*0.85
+      };
 
       rollEnemyMods(e, rng, stage);
       room.enemies.push(e);
@@ -530,8 +593,7 @@
       const s = Math.max(1, stage) - 1;
       const bossHp = Math.round((70 + stage*55 + s*s*16) * (1 + s*0.10));
       const e={kind,x:W/2,y:H/2,r:34,hp:bossHp,maxHp:bossHp,speed:95+stage*2,touch:2,phase:0,cd:0.35};
-      rollEnemyMods(e, rng, stage); // bosses can also roll some spice
-      // bosses shouldn’t be too extreme, keep their rapid within reason
+      rollEnemyMods(e, rng, stage);
       e.rapid = Math.min(e.rapid, 2.4);
       room.enemies.push(e);
     }
@@ -595,8 +657,13 @@
     const extra = Math.min(10, Math.floor(stage*0.75));
     const count = base + extra;
 
+    // bulwark chance ramps a bit with stage
+    const bulwarkChance = clamp(0.10 + stage*0.02, 0.10, 0.22);
+
     for (let i=0;i<count;i++){
-      spawnEnemy(room, rng()<0.55 ? "chaser" : "shooter", rng, stage);
+      const r = rng();
+      if (r < bulwarkChance) spawnEnemy(room, "bulwark", rng, stage);
+      else spawnEnemy(room, rng()<0.55 ? "chaser" : "shooter", rng, stage);
     }
     room.cleared=false;
   }
@@ -684,7 +751,6 @@
     room.bullets.push({from:"enemy",x:bx,y:by,vx,vy,r,dmg,life:1.2});
   }
 
-  // NEW: handles enemy triple-shot automatically via src.shots/src.spread
   function shootEnemyFrom(src, dx, dy, speed=260, r=5, dmg=1){
     const d=norm(dx,dy);
     if (d.L<0.001) return;
@@ -760,7 +826,7 @@
 
   function nextStage(){
     stage++;
-    buildNewStageDungeon(); // keep player stats/items
+    buildNewStageDungeon();
     gameState="playing";
     setOverlay(false);
   }
@@ -786,10 +852,10 @@
 
   function showMenu(){
     gameState="menu";
-    ovTitle.textContent="Reaps Dungeon";
+    ovTitle.textContent="Tiny Roguelike";
     ovSub.innerHTML = `<span class="kbd">WASD</span> move • mouse/arrow keys shoot • <span class="kbd">B</span> shop • <span class="kbd">R</span> new run`;
     ovBody.innerHTML = "";
-    ovFooter.textContent='Tip: doors to unvisited rooms glow gold and show a "?"';
+    ovFooter.textContent='Tip: unvisited doors glow gold and show a "?"';
     btnPrimary.textContent="Start";
     btnClose.style.display="none";
     setOverlay(true);
@@ -799,13 +865,14 @@
     gameState="stage_clear";
     ovTitle.textContent = `Stage ${stage} Cleared!`;
     ovSub.innerHTML =
-      `You cleared <span class="kbd">${dungeon.rooms.size}</span> rooms. ` +
-      `Boss rooms next stage: <span class="kbd">${1 + Math.floor((stage)/2)}</span> • ` +
+      `You cleared <span class="kbd">${dungeon.rooms.size}</span> rooms • ` +
       `Press <span class="kbd">Enter</span> or click Next Stage.`;
     ovBody.innerHTML = `
       <div style="opacity:.9; font-size:13px; line-height:1.5;">
         <div style="margin-top:6px;">You keep your upgrades, coins, and hearts.</div>
         <div style="margin-top:6px;">Stage 3+: enemies can roll <span class="kbd">≋</span> Triple and <span class="kbd">⚡</span> Rapid.</div>
+        <div style="margin-top:6px;">Stage 1-2: <span class="kbd">15%</span> chance an enemy spawns upgraded.</div>
+        <div style="margin-top:6px;">New enemy: <span class="kbd">Bulwark</span> blocks shots from the front — flank it.</div>
       </div>
     `;
     ovFooter.textContent = "Next stage generates a fresh map (roguelike loop).";
@@ -966,7 +1033,7 @@
       }
     }
 
-    // player movement
+    // move
     const mvx=(keys.get("KeyD")?1:0)-(keys.get("KeyA")?1:0);
     const mvy=(keys.get("KeyS")?1:0)-(keys.get("KeyW")?1:0);
     const m=norm(mvx,mvy);
@@ -974,12 +1041,13 @@
     if (player.shotCd>0) player.shotCd-=dt;
     if (player.iframes>0) player.iframes-=dt;
 
-    // shooting
+    // shoot
     if (mouse.down) shootPlayer(mouse.x-player.x, mouse.y-player.y);
     const sdx=(keys.get("ArrowRight")?1:0)-(keys.get("ArrowLeft")?1:0);
     const sdy=(keys.get("ArrowDown")?1:0)-(keys.get("ArrowUp")?1:0);
     if (sdx||sdy) shootPlayer(sdx,sdy);
 
+    // shop hotkeys handled elsewhere
     if (fadeDir===0){
       let nx=player.x + m.x*player.speed*dt;
       let ny=player.y + m.y*player.speed*dt;
@@ -1002,15 +1070,12 @@
     for (let i=room.enemies.length-1;i>=0;i--){
       const e=room.enemies[i];
       const toP=norm(player.x-e.x, player.y-e.y);
-
-      // rapid fire makes cooldown tick down faster
       const rapid = e.rapid || 1;
 
       if (e.kind==="chaser"){
         e.x += toP.x*e.speed*dt;
         e.y += toP.y*e.speed*dt;
 
-        // NEW: some chasers spit shots (stage 3+)
         if (e.canSpit){
           e.spitCd -= dt * rapid;
           if (e.spitCd<=0){
@@ -1032,6 +1097,38 @@
           shootEnemyFrom(e, player.x-e.x, player.y-e.y, spd, 5, 1);
         }
       }
+      else if (e.kind==="bulwark"){
+        // face the player (slow turning so you can flank)
+        const target = Math.atan2(player.y-e.y, player.x-e.x);
+        if (typeof e.face !== "number") e.face = target;
+        e.face = lerpAngle(e.face, target, clamp(0.9*dt, 0, 1));
+
+        // dash sometimes (shield bash)
+        if (e.dashT > 0){
+          e.dashT -= dt;
+          e.x += Math.cos(e.face) * e.dashSpeed * dt;
+          e.y += Math.sin(e.face) * e.dashSpeed * dt;
+        } else {
+          e.dashCd -= dt;
+          e.x += Math.cos(e.face) * e.speed * dt;
+          e.y += Math.sin(e.face) * e.speed * dt;
+
+          if (e.dashCd <= 0 && toP.L < 260){
+            e.dashT = 0.22;
+            e.dashCd = 1.35 + Math.random()*1.05;
+          }
+        }
+
+        // optional shooting (especially meaningful when it has ≋ / ⚡)
+        if (e.canShoot){
+          e.shootCd -= dt * rapid;
+          if (e.shootCd <= 0 && e.dashT <= 0){
+            e.shootCd = 0.95 + Math.random()*0.85;
+            const spd = 285 + stage*7;
+            shootEnemyFrom(e, player.x-e.x, player.y-e.y, spd, 5, 1);
+          }
+        }
+      }
       else if (e.kind==="boss"){
         e.cd -= dt * rapid;
 
@@ -1050,17 +1147,13 @@
             const n = 10 + Math.min(10, Math.floor(stage*0.6));
             for (let k=0;k<n;k++){
               const a=(k/n)*Math.PI*2;
-              // boss patterns stay "bossy", but triple still affects the main aimed shots phases below
-              const vx=Math.cos(a), vy=Math.sin(a);
-              shootEnemyFrom(e, vx, vy, bulletSpeed, 5, 1);
+              shootEnemyFrom(e, Math.cos(a), Math.sin(a), bulletSpeed, 5, 1);
             }
             e.cd=0.95;
           } else if (e.phase===1){
-            // aimed burst (triple applies nicely here)
             shootEnemyFrom(e, player.x-e.x, player.y-e.y, bulletSpeed+60, 5, 1);
             e.cd=0.65;
           } else {
-            // fast snipe (triple can also make this nastier)
             shootEnemyFrom(e, player.x-e.x, player.y-e.y, bulletSpeed+120, 6, 1);
             e.cd=0.35;
           }
@@ -1071,15 +1164,31 @@
       const ce=clampToRoom(e.x,e.y,e.r);
       e.x=ce.x; e.y=ce.y;
 
-      // contact damage
+      // contact damage (bulwark dash hits harder + knocks you back)
       const rr=player.r+e.r;
       if (dist2(player.x,player.y,e.x,e.y) <= rr*rr){
         if (player.iframes<=0){
-          player.hp -= e.touch;
+          let dmg = e.touch;
+          let knock = 0;
+
+          if (e.kind==="bulwark" && e.dashT>0){
+            dmg = 2;
+            knock = 72;
+          }
+
+          player.hp -= dmg;
           player.iframes=0.85;
-          room.shake=Math.max(room.shake,10);
-          addParticles(room, player.x, player.y, 16, "hurt");
+          room.shake=Math.max(room.shake, 10 + dmg*2);
+          addParticles(room, player.x, player.y, 16 + dmg*4, "hurt");
           sfx.hurt(panFromX(player.x));
+
+          if (knock){
+            player.x += Math.cos(e.face||0) * knock;
+            player.y += Math.sin(e.face||0) * knock;
+            const cl=clampToRoom(player.x, player.y, player.r);
+            player.x=cl.x; player.y=cl.y;
+          }
+
           if (player.hp<=0){ die(); return; }
         }
       }
@@ -1103,6 +1212,22 @@
           const e=room.enemies[j];
           const rr=b.r+e.r;
           if (dist2(b.x,b.y,e.x,e.y) <= rr*rr){
+            // NEW: Bulwark shield blocks shots from the front
+            if (e.kind==="bulwark"){
+              const face = (typeof e.face === "number") ? e.face : Math.atan2(player.y-e.y, player.x-e.x);
+              const angToBullet = Math.atan2(b.y - e.y, b.x - e.x);
+              const dAng = Math.abs(angleNorm(angToBullet - face));
+              if (dAng <= (e.shieldHalf || 0.95)){
+                // blocked!
+                room.shake = Math.max(room.shake, 2);
+                addParticles(room, b.x, b.y, 10, "spark");
+                sfx.deny(panFromX(e.x));
+                room.bullets.splice(i,1);
+                break;
+              }
+            }
+
+            // normal damage
             e.hp -= b.dmg;
             room.shake=Math.max(room.shake,5);
             addParticles(room, b.x, b.y, 10, "hit");
@@ -1211,6 +1336,21 @@
   }
 
   // ================= Drawing =================
+  function drawEnemyModsIcon(e){
+    if (!e.modTriple && !e.modRapid) return;
+    const icons = (e.modTriple ? "≋" : "") + (e.modRapid ? "⚡" : "");
+    ctx.save();
+    ctx.font = "12px ui-sans-serif, system-ui";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle="rgba(0,0,0,0.55)";
+    ctx.fillText(icons, e.x+1, e.y - e.r - 12 + 1);
+    ctx.fillStyle="rgba(255,255,255,0.92)";
+    ctx.fillText(icons, e.x, e.y - e.r - 12);
+    ctx.restore();
+  }
+
   function drawRoom(){
     const bg=ctx.createLinearGradient(0,0,0,H);
     bg.addColorStop(0,"#070912");
@@ -1356,7 +1496,52 @@
       ctx.fillStyle=hpg;
       roundRect(ctx,x,y,bw*pct,bh,999,true,false);
 
-      // icons above boss too
+      drawEnemyModsIcon(e);
+      return;
+    }
+
+    if (e.kind==="bulwark"){
+      const grd=ctx.createRadialGradient(e.x-6,e.y-8,3,e.x,e.y,e.r*1.8);
+      grd.addColorStop(0, "rgba(220,235,255,1)");
+      grd.addColorStop(1, "rgba(120,150,255,1)");
+      ctx.fillStyle=grd;
+      ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle="rgba(255,255,255,0.16)";
+      ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.stroke();
+
+      // shield (front arc)
+      const face = (typeof e.face === "number") ? e.face : 0;
+      const half = e.shieldHalf || 0.95;
+      const R = e.r + 10;
+
+      ctx.save();
+      ctx.translate(e.x, e.y);
+      ctx.rotate(face);
+
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = "rgba(120,255,200,0.10)";
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.arc(0,0,R, -half, +half);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = "rgba(120,255,200,0.55)";
+      ctx.lineWidth = 6;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(0,0,R, -half, +half);
+      ctx.stroke();
+
+      // little shield “cap”
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle="rgba(160,255,220,0.80)";
+      roundRect(ctx, R-4, -8, 10, 16, 6, true, false);
+
+      ctx.restore();
+
       drawEnemyModsIcon(e);
       return;
     }
@@ -1372,21 +1557,6 @@
     ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.stroke();
 
     drawEnemyModsIcon(e);
-  }
-
-  function drawEnemyModsIcon(e){
-    if (!e.modTriple && !e.modRapid) return;
-    const icons = (e.modTriple ? "≋" : "") + (e.modRapid ? "⚡" : "");
-    ctx.save();
-    ctx.font = "12px ui-sans-serif, system-ui";
-    ctx.textAlign="center";
-    ctx.textBaseline="middle";
-    ctx.globalAlpha = 0.95;
-    ctx.fillStyle="rgba(0,0,0,0.55)";
-    ctx.fillText(icons, e.x+1, e.y - e.r - 12 + 1);
-    ctx.fillStyle="rgba(255,255,255,0.92)";
-    ctx.fillText(icons, e.x, e.y - e.r - 12);
-    ctx.restore();
   }
 
   function drawBullet(b){
@@ -1593,7 +1763,7 @@
 
     hintEl.innerHTML =
       `<b>Move</b> WASD • <b>Shoot</b> Mouse/Arrows • <b>Shop</b> B • <b>New run</b> R • `+
-      `Stage 3+: enemies can have <b>≋</b> Triple and <b>⚡</b> Rapid • Clear ALL rooms to advance`;
+      `Enemies can have <b>≋</b> Triple / <b>⚡</b> Rapid • <b>Bulwark</b> blocks front shots • Clear ALL rooms to advance`;
     hintEl.style.display = "block";
 
     drawMiniMap();
@@ -1614,7 +1784,6 @@
   // ================= Boot =================
   startNewRun(true);
   requestAnimationFrame(tick);
-
 })();
 </script>
 </body>
