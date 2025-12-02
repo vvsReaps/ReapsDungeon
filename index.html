@@ -909,7 +909,7 @@
     const rseed=hash32(`${dungeon.seed}:${room.x},${room.y}:${room.type}:stage${stage}`);
     const rng=mulberry32(rseed);
 
-    if (stage >= 3 && (room.type==="normal" || room.type==="boss")){
+    if (stage >= 1 && (room.type==="normal" || room.type==="boss")){
       generateObstacles(room, rng, stage);
     }
 
@@ -2325,5 +2325,6 @@
 </script>
 </body>
 </html>
+
 
 
