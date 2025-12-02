@@ -562,13 +562,13 @@
 
   // ================= Items ==================
   const ITEMS = [
-    { id:"TRIPLE", name:"Triple Shot", desc:"3 projectiles in a spread", icon:"≋", base:10 },
+    { id:"TRIPLE", name:"Triple Shot", desc:"3 projectiles in a spread", icon:"≋", base:25 },
     { id:"RAPID",  name:"Rapid Fire",  desc:"Higher rate of fire",      icon:"⚡", base: 8 },
     { id:"DMG",    name:"Damage Up",   desc:"Tears hit harder",         icon:"✦", base: 9 },
-    { id:"SPEED",  name:"Speed Up",    desc:"Move faster",              icon:"➤", base: 6 },
+    { id:"SPEED",  name:"Speed Up",    desc:"Move faster",              icon:"➤", base: 3 },
     { id:"SHOTSPD",name:"Shot Speed",  desc:"Faster projectiles",       icon:"➠", base: 5 },
     { id:"BIG",    name:"Big Tears",   desc:"Bigger bullets",           icon:"●", base: 6 },
-    { id:"HPUP",   name:"HP Up",       desc:"+1 heart container",       icon:"❤", base: 7 },
+    { id:"HPUP",   name:"HP Up",       desc:"+1 heart container",       icon:"❤", base: 10 },
   ];
   function itemById(id){ return ITEMS.find(i=>i.id===id) || ITEMS[0]; }
 
@@ -2325,4 +2325,5 @@
 </script>
 </body>
 </html>
+
 
