@@ -450,15 +450,15 @@
       for (let ttry=0;ttry<tries && !placed;ttry++){
         const isCircle = rng() < 0.58;
         if (isCircle){
-          const r = 12 + rng()*14 + Math.min(6, t*0.6);
+          const r = (12 + rng()*14 + Math.min(6, t*0.6)) * 1.4;
           const x = b.left + 40 + rng()*((b.right-b.left)-80);
           const y = b.top  + 40 + rng()*((b.bot-b.top)-80);
           if (!okCircle(x,y,r)) continue;
           room.obstacles.push({kind:"circle", x, y, r});
           placed=true;
         } else {
-          const w = 26 + rng()*36 + Math.min(12, t*1.0);
-          const h = 18 + rng()*28 + Math.min(10, t*0.9);
+          const w = (26 + rng()*36 + Math.min(12, t*1.0)) * 1.4;
+          const h = (18 + rng()*28 + Math.min(10, t*0.9)) * 1.4;
           const x = b.left + 30 + rng()*((b.right-b.left)-60-w);
           const y = b.top  + 30 + rng()*((b.bot-b.top)-60-h);
           if (!okRect(x,y,w,h)) continue;
@@ -781,7 +781,7 @@
     if (kind==="boss") {
       // Pick boss type per boss room:
       // ~20% Bomb Boss (tankier, bombs + telegraphed explosions), else classic boss.
-      const bossType = (rng() < 0.20) ? "bomb" : "classic";
+      const bossType = (rng() < 0.35) ? "bomb" : "classic";
 
       const s = Math.max(1, stage) - 1;
       const baseBossHp = Math.round((70 + stage*55 + s*s*16) * (1 + s*0.10));
@@ -1186,12 +1186,12 @@
     player.coins += 500;
 
     if (stage < 3){
-      stage = 3;
+      stage = 5;
       buildNewStageDungeon();     // new random map, keep your build/coins/hp
       gameState = "playing";
       setOverlay(false);
 
-      addPopup(room, "CHEAT: Stage 3 (+500 coins)", W/2, ROOM_Y + 46);
+      addPopup(room, "CHEAT: Stage 5 (+500 coins)", W/2, ROOM_Y + 46);
       addParticles(room, W/2, H/2, 22, "spark");
       sfx.buy(0);
     } else {
@@ -2325,3 +2325,4 @@
 </script>
 </body>
 </html>
+
